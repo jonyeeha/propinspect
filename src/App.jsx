@@ -13,12 +13,23 @@ const SEED = {
     { id: "c4", name: "Desert Plumbing Co.", trade: "Plumbing", email: "info@desertplumbing.com", phone: "(480) 555-0233", license: "AZ-PL-11203", avgResponse: "Same day" },
   ],
   checklistTemplate: [
-    { area: "HVAC & Mechanical", items: ["Filter condition", "Thermostat operation", "Ductwork & vents", "Mechanical room access", "Boiler / chiller inspection"] },
-    { area: "Roof & Exterior", items: ["Roof membrane & flashing", "Drainage & gutters", "Exterior walls & caulking", "Windows & seals", "Loading docks"] },
-    { area: "Electrical & Lighting", items: ["Panel box & breakers", "Exterior lighting", "Emergency lighting", "Parking lot lights", "Exit signs (lit)"] },
-    { area: "Plumbing", items: ["Restroom fixtures", "Water heater condition", "Visible pipe condition", "Sump pump (if applicable)", "Backflow preventer"] },
-    { area: "Safety & Compliance", items: ["Fire extinguishers (dated)", "Sprinkler heads clear", "ADA compliance", "Hazmat storage", "First aid kit"] },
-    { area: "Parking & Grounds", items: ["Parking lot condition", "Landscaping", "Lighting & signage", "Drainage & curbing", "Trash enclosure"] },
+    { area: "Parking Lot", items: ["Condition", "Cleanliness", "Striping"] },
+    { area: "Curbing and Tire Stops", items: ["Condition", "Paint", "Debris"] },
+    { area: "Parking Garage (if applicable)", items: ["Condition", "Cleanliness", "Striping"] },
+    { area: "Signs (stop, handicap, fire lane)", items: ["Condition", "Compliance", "Installation"] },
+    { area: "Lighting (night inspection)", items: ["Parking Lot", "Back of House security lighting", "Common area sidewalk lighting", "Canopy/Sconce"] },
+    { area: "Landscaping", items: ["Condition", "Adequate Coverage", "Trees", "Weeds"] },
+    { area: "Back of House/Service Areas", items: ["Cleanliness", "Service Courts/Dumpster Enclosures", "Loading Docks", "Dumping/Graffiti"] },
+    { area: "Building Exterior", items: ["Condition", "Paint", "Graffiti"] },
+    { area: "Fountains/Water Features", items: ["Condition/Operation", "Cleanliness"] },
+    { area: "Monument/Pylon/Directional Signage", items: ["Condition", "Current Information", "Operational"] },
+    { area: "Common Area Amenities/General Standards", items: ["Cleanliness", "Organization (chairs arranged, umbrellas open)", "Music Levels"] },
+    { area: "Storefronts", items: ["Cleanliness", "Banners/A-Frames/Stanchions", "Window/Storefront Vinyl"] },
+    { area: "Elevator/Escalators", items: ["Cleanliness", "Operational"] },
+    { area: "Marketing", items: ["Sign Holders", "Directories"] },
+    { area: "Maintenance Staff", items: ["Uniform Standards", "Vehicle Standards", "Visibility"] },
+    { area: "Security Staff", items: ["Uniform Standards", "Vehicle Standards", "Visibility"] },
+    { area: "Vacant Suites", items: ["Cleanliness (Inside and Outside)", "Vacant Window Graphics", "Leasing Information"] },
   ],
   workOrders: [],
   nextWONumber: 1001,
@@ -105,8 +116,12 @@ export default function App() {
   const startInsp = (p) => {
     setProp(p);
     const st = {};
-    db.checklistTemplate.forEach(s => s.items.forEach(it => { st[`${s.area}::${it}`] = { status: "none" }; }));
-    db.workOrders.filter(w => w.propertyId === p.id).forEach(w => { const k = `${w.area}::${w.item}`; if (st[k]) st[k] = { status: "flagged" }; });
+    db.checklistTemplate.forEach(s => s.items.forEach(it => {
+      st[`${s.area}::${it}`] = { status: "none" }; // none | sat | unsat | flagged
+    }));
+    db.workOrders.filter(w => w.propertyId === p.id && w.status === "pending").forEach(w => {
+      const k = `${w.area}::${w.item}`; if (st[k]) st[k] = { status: "flagged" };
+    });
     setClState(st); setOpenA({ [db.checklistTemplate[0].area]: true }); setScr("checklist");
   };
 
@@ -114,11 +129,7 @@ export default function App() {
   const total = Object.keys(clState).length;
   const pct = total ? Math.round(done / total * 100) : 0;
 
-  const toggleItem = (k) => setClState(prev => {
-    const cur = prev[k]?.status;
-    if (cur === "flagged") return prev;
-    return { ...prev, [k]: { status: cur === "ok" ? "none" : "ok" } };
-  });
+  const setSat = (k, val) => setClState(prev => ({ ...prev, [k]: { ...prev[k], status: val } }));
 
   const openIssue = (area, item) => { setIssItem({ area, item }); setIssDesc(""); setIssPri("Medium"); setIssCont(db.contractors[0]); setIssPhotos(0); setScr("issue"); };
 
@@ -325,53 +336,88 @@ export default function App() {
     </div>
   );
 
-  const renderChecklist = () => (
-    <>
-      <div style={{ padding: "12px 16px 0", background: "#fff", borderBottom: "0.5px solid rgba(0,0,0,0.06)" }}>
-        <div style={S.pwrap}><div style={S.pfill(pct)} /></div>
-        <div style={{ fontSize: 12, color: "#888", textAlign: "right", marginBottom: 8 }}>{done} of {total} · {pct}%</div>
-      </div>
-      <div style={S.body}>
-        {db.checklistTemplate.map((sec) => {
-          const isOpen = openA[sec.area];
-          const flagged = sec.items.filter(it => clState[`${sec.area}::${it}`]?.status === "flagged").length;
-          const ok = sec.items.filter(it => clState[`${sec.area}::${it}`]?.status === "ok").length;
-          return (
-            <div key={sec.area} style={{ background: "#fff", border: "0.5px solid rgba(0,0,0,0.08)", borderRadius: 14, marginBottom: 8, overflow: "hidden" }}>
-              <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={() => setOpenA(p => ({ ...p, [sec.area]: !p[sec.area] }))}>
-                <span style={{ fontSize: 13, fontWeight: 600, flex: 1, color: "#111" }}>{sec.area}</span>
-                {flagged > 0 && <Bdg bg="#FAECE7" tx="#993C1D">{flagged} issue{flagged > 1 ? "s" : ""}</Bdg>}
-                {ok > 0 && flagged === 0 && <Bdg bg="#E1F5EE" tx="#0F6E56">{ok}/{sec.items.length}</Bdg>}
-                <span style={{ color: "#aaa", fontSize: 12, marginLeft: 8 }}>{isOpen ? "▲" : "▼"}</span>
-              </div>
-              {isOpen && (
-                <div style={{ padding: "4px 16px 8px", borderTop: "0.5px solid rgba(0,0,0,0.06)" }}>
-                  {sec.items.map(item => {
-                    const k = `${sec.area}::${item}`;
-                    const st = clState[k]?.status || "none";
-                    return (
-                      <div key={item} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 0", borderBottom: "0.5px solid rgba(0,0,0,0.05)", cursor: "pointer" }} onClick={() => st !== "flagged" && toggleItem(k)}>
-                        <div style={S.cbox(st)}>{st === "ok" ? "✓" : st === "flagged" ? "!" : ""}</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 14, color: "#111" }}>{item}</div>
-                          {st === "flagged" && <div style={{ fontSize: 12, color: "#993C1D", marginTop: 2 }}>Issue flagged · work order sent</div>}
-                        </div>
-                        {st !== "flagged" && (
-                          <button style={{ fontSize: 12, padding: "3px 10px", borderRadius: 20, border: "0.5px solid rgba(0,0,0,0.15)", background: "#FAECE7", color: "#993C1D", cursor: "pointer", fontFamily: "inherit" }}
-                            onClick={e => { e.stopPropagation(); openIssue(sec.area, item); }}>Flag</button>
-                        )}
-                      </div>
-                    );
-                  })}
+  const renderChecklist = () => {
+    const satBtn = (k, val, label, activeBg, activeTx, activeBorder) => {
+      const cur = clState[k]?.status;
+      const active = cur === val;
+      return (
+        <button onClick={e => { e.stopPropagation(); setSat(k, active ? "none" : val); }}
+          style={{ fontSize: 12, padding: "5px 11px", borderRadius: 20, fontFamily: "inherit", fontWeight: active ? 700 : 400, cursor: "pointer", transition: "all 0.15s",
+            border: active ? `1.5px solid ${activeBorder}` : "0.5px solid rgba(0,0,0,0.15)",
+            background: active ? activeBg : "#fff", color: active ? activeTx : "#888" }}>
+          {label}
+        </button>
+      );
+    };
+
+    return (
+      <>
+        <div style={{ padding: "12px 16px 0", background: "#fff", borderBottom: "0.5px solid rgba(0,0,0,0.06)" }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#0F1F38", marginBottom: 4 }}>{prop?.name}</div>
+          <div style={S.pwrap}><div style={S.pfill(pct)} /></div>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#888", marginBottom: 8 }}>
+            <span>{done} of {total} items rated</span>
+            <span style={{ color: "#1D9E75", fontWeight: 600 }}>{pct}%</span>
+          </div>
+          <div style={{ display: "flex", gap: 12, fontSize: 11, marginBottom: 10 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: "#1D9E75", display: "inline-block" }} />Satisfactory</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: "#D85A30", display: "inline-block" }} />Unsatisfactory</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: "#FAEEDA", border: "1px solid #FAC775", display: "inline-block" }} />Work order flagged</span>
+          </div>
+        </div>
+        <div style={S.body}>
+          {db.checklistTemplate.map((sec) => {
+            const isOpen = openA[sec.area];
+            const unsat  = sec.items.filter(it => clState[`${sec.area}::${it}`]?.status === "unsat").length;
+            const flagged = sec.items.filter(it => clState[`${sec.area}::${it}`]?.status === "flagged").length;
+            const sat    = sec.items.filter(it => clState[`${sec.area}::${it}`]?.status === "sat").length;
+            const rated  = sat + unsat + flagged;
+            return (
+              <div key={sec.area} style={{ background: "#fff", border: unsat > 0 || flagged > 0 ? "1px solid #F0997B" : "0.5px solid rgba(0,0,0,0.08)", borderRadius: 14, marginBottom: 8, overflow: "hidden" }}>
+                <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", background: unsat > 0 || flagged > 0 ? "#FFFAF8" : "#fff" }}
+                  onClick={() => setOpenA(p => ({ ...p, [sec.area]: !p[sec.area] }))}>
+                  <span style={{ fontSize: 13, fontWeight: 600, flex: 1, color: "#111", lineHeight: 1.3 }}>{sec.area}</span>
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    {flagged > 0 && <Bdg bg="#FAEEDA" tx="#854F0B">{flagged} WO</Bdg>}
+                    {unsat > 0  && <Bdg bg="#FAECE7" tx="#993C1D">{unsat} unsat</Bdg>}
+                    {rated > 0 && unsat === 0 && flagged === 0 && <Bdg bg="#E1F5EE" tx="#0F6E56">{rated}/{sec.items.length}</Bdg>}
+                  </div>
+                  <span style={{ color: "#aaa", fontSize: 12, marginLeft: 4 }}>{isOpen ? "▲" : "▼"}</span>
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <div style={S.bbar}><button style={S.pbtn("dk")} onClick={() => setScr("home")}>Finish Inspection</button></div>
-    </>
-  );
+                {isOpen && (
+                  <div style={{ borderTop: "0.5px solid rgba(0,0,0,0.06)" }}>
+                    {sec.items.map((item, ii) => {
+                      const k = `${sec.area}::${item}`;
+                      const st = clState[k]?.status || "none";
+                      const isFlagged = st === "flagged";
+                      const isUnsat   = st === "unsat";
+                      return (
+                        <div key={item} style={{ padding: "10px 14px", borderBottom: ii < sec.items.length - 1 ? "0.5px solid rgba(0,0,0,0.05)" : "none", background: isFlagged ? "#FFFBF5" : isUnsat ? "#FFFAF8" : "#fff" }}>
+                          <div style={{ fontSize: 14, color: "#111", marginBottom: 8, fontWeight: 500 }}>{item}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            {satBtn(k, "sat",   "✓ Satisfactory",   "#E1F5EE", "#0F6E56", "#1D9E75")}
+                            {satBtn(k, "unsat", "✕ Unsatisfactory", "#FAECE7", "#993C1D", "#D85A30")}
+                            {!isFlagged && (
+                              <button onClick={() => openIssue(sec.area, item)}
+                                style={{ fontSize: 12, padding: "5px 11px", borderRadius: 20, border: "0.5px solid rgba(0,0,0,0.15)", background: "#F4F2EE", color: "#555", cursor: "pointer", fontFamily: "inherit", marginLeft: "auto" }}>
+                                + Work order
+                              </button>
+                            )}
+                            {isFlagged && <span style={{ fontSize: 12, color: "#854F0B", background: "#FAEEDA", padding: "4px 10px", borderRadius: 20, marginLeft: "auto" }}>Work order sent</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div style={S.bbar}><button style={S.pbtn("dk")} onClick={() => setScr("home")}>Finish Inspection</button></div>
+      </>
+    );
+  };
 
   const renderIssue = () => (
     <>
