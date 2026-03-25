@@ -3,9 +3,8 @@ import { useState, useCallback } from "react";
 const SEED = {
   managerEmail: "manager@yourcompany.com",
   properties: [
-    { id: "p1", name: "Riverside Commerce Center", units: 24, type: "Commercial Office", address: "1200 Riverside Dr", inspectionFreq: "Quarterly" },
-    { id: "p2", name: "Westpark Industrial", units: 8, type: "Industrial", address: "450 Westpark Blvd", inspectionFreq: "Annual" },
-    { id: "p3", name: "Harbor Plaza Retail", units: 12, type: "Retail", address: "88 Harbor Way", inspectionFreq: "Bi-Annual" },
+    { id: "p1", name: "Verrado Marketplace", units: 1, type: "Commercial", address: "", inspectionFreq: "Quarterly" },
+    { id: "p2", name: "Canyon Trails", units: 1, type: "Commercial", address: "", inspectionFreq: "Quarterly" },
   ],
   contractors: [
     { id: "c1", name: "Johnson Electric", trade: "Electrical", email: "johnson@johnsonelectric.com", phone: "(602) 555-0191", license: "AZ-EL-88214", avgResponse: "Same day" },
@@ -21,13 +20,8 @@ const SEED = {
     { area: "Safety & Compliance", items: ["Fire extinguishers (dated)", "Sprinkler heads clear", "ADA compliance", "Hazmat storage", "First aid kit"] },
     { area: "Parking & Grounds", items: ["Parking lot condition", "Landscaping", "Lighting & signage", "Drainage & curbing", "Trash enclosure"] },
   ],
-  workOrders: [
-    { id: "wo1", number: "WO-1039", propertyId: "p1", area: "Roof & Exterior", item: "Drainage & gutters", description: "Standing water on east section — drain blocked by debris.", priority: "Medium", contractorId: "c2", status: "complete", photos: 2, createdAt: "2026-03-10", acceptedAt: "2026-03-11" },
-    { id: "wo2", number: "WO-1040", propertyId: "p2", area: "Electrical & Lighting", item: "Parking lot lights", description: "Light pole base corroded, needs full replacement.", priority: "High", contractorId: "c2", status: "accepted", photos: 3, createdAt: "2026-03-18", acceptedAt: "2026-03-18" },
-    { id: "wo3", number: "WO-1041", propertyId: "p1", area: "HVAC & Mechanical", item: "Filter condition", description: "3rd floor unit filters overdue — restricted airflow.", priority: "Low", contractorId: "c3", status: "accepted", photos: 1, createdAt: "2026-03-20", acceptedAt: "2026-03-21" },
-    { id: "wo4", number: "WO-1042", propertyId: "p1", area: "Electrical & Lighting", item: "Exterior lighting", description: "Two exterior fixtures out on north side — ballasts likely failed.", priority: "Medium", contractorId: "c1", status: "pending", photos: 2, createdAt: "2026-03-23", acceptedAt: null },
-  ],
-  nextWONumber: 1043,
+  workOrders: [],
+  nextWONumber: 1001,
 };
 
 const STORE_KEY = "propinspect_db";
@@ -86,6 +80,9 @@ export default function App() {
   const [issPhotos, setIssPhotos] = useState(0);
   const [newWO, setNewWO] = useState(null);
   const [woFilter, setWoFilter] = useState("all");
+  const [showAddP, setShowAddP] = useState(false);
+  const [editingP, setEditingP] = useState(null);
+  const [newP, setNewP] = useState({ name: "", address: "", units: "", type: "", inspectionFreq: "Quarterly" });
   const [showAddC, setShowAddC] = useState(false);
   const [newC, setNewC] = useState({ name: "", trade: "", email: "", phone: "", license: "" });
   const [editMgr, setEditMgr] = useState(false);
@@ -517,6 +514,101 @@ export default function App() {
     </>
   );
 
+  const addProperty = () => {
+    if (!newP.name.trim()) return;
+    const p = { id: `p${Date.now()}`, ...newP, units: parseInt(newP.units) || 1 };
+    persist({ ...db, properties: [...db.properties, p] });
+    setNewP({ name: "", address: "", units: "", type: "", inspectionFreq: "Quarterly" });
+    setShowAddP(false);
+  };
+  const saveProperty = () => {
+    if (!editingP.name.trim()) return;
+    persist({ ...db, properties: db.properties.map(p => p.id === editingP.id ? { ...editingP, units: parseInt(editingP.units) || 1 } : p) });
+    setEditingP(null);
+  };
+  const deleteProperty = (id) => {
+    if (!window.confirm("Delete this property? Its work orders will remain in history.")) return;
+    persist({ ...db, properties: db.properties.filter(p => p.id !== id) });
+  };
+
+  const FREQS = ["Monthly", "Quarterly", "Bi-Annual", "Annual"];
+
+  const renderProperties = () => (
+    <div style={S.body}>
+      <div style={S.slabel}>Your properties</div>
+      {db.properties.map((p, i) => {
+        const av = ava(p.name, i);
+        const wos = db.workOrders.filter(w => w.propertyId === p.id).length;
+        const isEditing = editingP?.id === p.id;
+        return (
+          <div key={p.id} style={S.card}>
+            {isEditing ? (
+              <div style={{ padding: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#111", marginBottom: 14 }}>Edit property</div>
+                {[["Property name", "name", "text"], ["Address", "address", "text"], ["Units / Suites", "units", "number"], ["Type (e.g. Retail)", "type", "text"]].map(([ph, f, t]) => (
+                  <input key={f} type={t} style={S.inp} placeholder={ph} value={editingP[f]} onChange={e => setEditingP(prev => ({ ...prev, [f]: e.target.value }))} />
+                ))}
+                <label style={S.lbl}>Inspection frequency</label>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+                  {FREQS.map(f => (
+                    <button key={f} style={{ padding: "6px 12px", borderRadius: 20, border: editingP.inspectionFreq === f ? "1.5px solid #1D9E75" : "0.5px solid rgba(0,0,0,0.15)", background: editingP.inspectionFreq === f ? "#E1F5EE" : "#fff", color: editingP.inspectionFreq === f ? "#0F6E56" : "#666", fontWeight: editingP.inspectionFreq === f ? 700 : 400, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}
+                      onClick={() => setEditingP(prev => ({ ...prev, inspectionFreq: f }))}>{f}</button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={{ ...S.pbtn("gh"), flex: 1 }} onClick={() => setEditingP(null)}>Cancel</button>
+                  <button style={{ ...S.pbtn("gn"), flex: 1 }} onClick={saveProperty}>Save changes</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ padding: "13px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ ...S.av(av.bg, av.tx, 44), borderRadius: 12, fontSize: 22 }}>{propIcon(p.type)}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: "#111" }}>{p.name}</div>
+                    <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{p.address || "No address set"} · {p.inspectionFreq}</div>
+                  </div>
+                  <Bdg bg="#E1F5EE" tx="#0F6E56">{wos} WOs</Bdg>
+                </div>
+                <div style={{ borderTop: "0.5px solid rgba(0,0,0,0.06)", padding: "8px 16px 12px" }}>
+                  {[["Units / Suites", p.units || "—"], ["Type", p.type || "—"], ["Inspection freq.", p.inspectionFreq]].map(([k, v]) => (
+                    <div key={k} style={S.irow}><span style={{ color: "#888", fontSize: 13 }}>{k}</span><span style={{ color: "#111", fontWeight: 500, fontSize: 13 }}>{v}</span></div>
+                  ))}
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <button style={{ ...S.pbtn("gh"), padding: "8px 0", fontSize: 13, flex: 1 }} onClick={() => setEditingP({ ...p })}>Edit</button>
+                    <button style={{ padding: "8px 0", fontSize: 13, flex: 1, borderRadius: 10, border: "0.5px solid #F09595", background: "#FCEBEB", color: "#A32D2D", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }} onClick={() => deleteProperty(p.id)}>Delete</button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
+
+      {!showAddP ? (
+        <button style={{ ...S.pbtn("gh"), marginTop: 4 }} onClick={() => setShowAddP(true)}>+ Add property</button>
+      ) : (
+        <div style={S.card}><div style={{ padding: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#111", marginBottom: 14 }}>New property</div>
+          {[["Property name *", "name", "text"], ["Address", "address", "text"], ["Units / Suites", "units", "number"], ["Type (e.g. Retail)", "type", "text"]].map(([ph, f, t]) => (
+            <input key={f} type={t} style={S.inp} placeholder={ph} value={newP[f]} onChange={e => setNewP(p => ({ ...p, [f]: e.target.value }))} />
+          ))}
+          <label style={S.lbl}>Inspection frequency</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+            {FREQS.map(f => (
+              <button key={f} style={{ padding: "6px 12px", borderRadius: 20, border: newP.inspectionFreq === f ? "1.5px solid #1D9E75" : "0.5px solid rgba(0,0,0,0.15)", background: newP.inspectionFreq === f ? "#E1F5EE" : "#fff", color: newP.inspectionFreq === f ? "#0F6E56" : "#666", fontWeight: newP.inspectionFreq === f ? 700 : 400, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}
+                onClick={() => setNewP(p => ({ ...p, inspectionFreq: f }))}>{f}</button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={{ ...S.pbtn("gh"), flex: 1 }} onClick={() => setShowAddP(false)}>Cancel</button>
+            <button style={{ ...S.pbtn("dk"), flex: 1 }} onClick={addProperty}>Add property</button>
+          </div>
+        </div></div>
+      )}
+    </div>
+  );
+
   const renderContractors = () => (
     <div style={S.body}>
       <div style={S.slabel}>Saved contractors</div>
@@ -711,8 +803,8 @@ export default function App() {
         )}
         {!inFlow && (
           <div style={S.tabs}>
-            {[["inspect", "Inspect"], ["workorders", "Orders"], ["contractors", "Contacts"], ["checklist", "Template"], ["report", "Report"]].map(([k, l]) => (
-              <button key={k} style={S.tab(tab === k)} onClick={() => { setTab(k); setScr("home"); }}>{l}</button>
+            {[["inspect", "Inspect"], ["properties", "Properties"], ["workorders", "Orders"], ["contractors", "Contacts"], ["checklist", "Template"], ["report", "Report"]].map(([k, l]) => (
+              <button key={k} style={{ ...S.tab(tab === k), fontSize: 10 }} onClick={() => { setTab(k); setScr("home"); }}>{l}</button>
             ))}
           </div>
         )}
@@ -721,6 +813,7 @@ export default function App() {
         {tab === "inspect" && scr === "issue" && renderIssue()}
         {tab === "inspect" && scr === "preview" && renderPreview()}
         {tab === "inspect" && scr === "sent" && renderSent()}
+        {tab === "properties" && renderProperties()}
         {tab === "workorders" && renderWorkOrders()}
         {tab === "contractors" && renderContractors()}
         {tab === "checklist" && renderTemplate()}
