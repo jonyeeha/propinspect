@@ -6,12 +6,7 @@ const SEED = {
     { id: "p1", name: "Verrado Marketplace", units: 1, type: "Commercial", address: "", inspectionFreq: "Quarterly" },
     { id: "p2", name: "Canyon Trails", units: 1, type: "Commercial", address: "", inspectionFreq: "Quarterly" },
   ],
-  contractors: [
-    { id: "c1", name: "Johnson Electric", trade: "Electrical", email: "johnson@johnsonelectric.com", phone: "(602) 555-0191", license: "AZ-EL-88214", avgResponse: "Same day" },
-    { id: "c2", name: "BuildPro Maintenance", trade: "General", email: "contact@buildpro.com", phone: "(602) 555-0144", license: "", avgResponse: "1–2 days" },
-    { id: "c3", name: "CoolStar HVAC", trade: "HVAC", email: "service@coolstarhvac.com", phone: "(480) 555-0177", license: "AZ-HV-44102", avgResponse: "1 day" },
-    { id: "c4", name: "Desert Plumbing Co.", trade: "Plumbing", email: "info@desertplumbing.com", phone: "(480) 555-0233", license: "AZ-PL-11203", avgResponse: "Same day" },
-  ],
+  contractors: [],
   checklistTemplate: [
     { area: "Parking Lot", items: ["Condition", "Cleanliness", "Striping"] },
     { area: "Curbing and Tire Stops", items: ["Condition", "Paint", "Debris"] },
@@ -655,24 +650,58 @@ export default function App() {
     </div>
   );
 
+  const [editingC, setEditingC] = useState(null);
+
+  const saveContractor = () => {
+    if (!editingC.name || !editingC.email) return;
+    persist({ ...db, contractors: db.contractors.map(c => c.id === editingC.id ? editingC : c) });
+    setEditingC(null);
+  };
+  const deleteContractor = (id) => {
+    persist({ ...db, contractors: db.contractors.filter(c => c.id !== id) });
+  };
+
   const renderContractors = () => (
     <div style={S.body}>
       <div style={S.slabel}>Saved contractors</div>
       {db.contractors.map((c, i) => {
         const av = ava(c.name, i);
         const cnt = db.workOrders.filter(w => w.contractorId === c.id).length;
+        const isEditing = editingC?.id === c.id;
         return (
           <div key={c.id} style={S.card}>
-            <div style={{ padding: "13px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={S.av(av.bg, av.tx, 44)}>{av.initials}</div>
-              <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: "#111" }}>{c.name}</div><div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{c.trade} · {c.email}</div></div>
-              <Bdg bg="#E1F5EE" tx="#0F6E56">{cnt} WOs</Bdg>
-            </div>
-            <div style={{ borderTop: "0.5px solid rgba(0,0,0,0.06)", padding: "8px 16px 12px" }}>
-              {[["Phone", c.phone || "—"], ["Response", c.avgResponse || "—"], ["License", c.license || "N/A"]].map(([k, v]) => (
-                <div key={k} style={S.irow}><span style={{ color: "#888", fontSize: 13 }}>{k}</span><span style={{ color: "#111", fontWeight: 500, fontSize: 13 }}>{v}</span></div>
-              ))}
-            </div>
+            {isEditing ? (
+              <div style={{ padding: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#111", marginBottom: 14 }}>Edit contractor</div>
+                {[["Name", "name", "text"], ["Trade", "trade", "text"], ["Email", "email", "email"], ["Phone", "phone", "tel"], ["License #", "license", "text"], ["Avg. response time", "avgResponse", "text"]].map(([ph, f, t]) => (
+                  <input key={f} type={t} style={S.inp} placeholder={ph} value={editingC[f] || ""} onChange={e => setEditingC(prev => ({ ...prev, [f]: e.target.value }))} />
+                ))}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={{ ...S.pbtn("gh"), flex: 1 }} onClick={() => setEditingC(null)}>Cancel</button>
+                  <button style={{ ...S.pbtn("gn"), flex: 1 }} onClick={saveContractor}>Save changes</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ padding: "13px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={S.av(av.bg, av.tx, 44)}>{av.initials}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: "#111" }}>{c.name}</div>
+                    <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{c.trade} · {c.email}</div>
+                  </div>
+                  <Bdg bg="#E1F5EE" tx="#0F6E56">{cnt} WOs</Bdg>
+                </div>
+                <div style={{ borderTop: "0.5px solid rgba(0,0,0,0.06)", padding: "8px 16px 12px" }}>
+                  {[["Phone", c.phone || "—"], ["Response", c.avgResponse || "—"], ["License", c.license || "N/A"]].map(([k, v]) => (
+                    <div key={k} style={S.irow}><span style={{ color: "#888", fontSize: 13 }}>{k}</span><span style={{ color: "#111", fontWeight: 500, fontSize: 13 }}>{v}</span></div>
+                  ))}
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <button style={{ ...S.pbtn("gh"), padding: "8px 0", fontSize: 13, flex: 1 }} onClick={() => setEditingC({ ...c })}>Edit</button>
+                    <button style={{ padding: "8px 0", fontSize: 13, flex: 1, borderRadius: 10, border: "0.5px solid #F09595", background: "#FCEBEB", color: "#A32D2D", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }} onClick={() => deleteContractor(c.id)}>Delete</button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         );
       })}
