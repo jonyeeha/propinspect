@@ -838,4 +838,75 @@ export default function App() {
                   <div style={{padding:"13px 16px"}}>
                     <div style={{fontSize:15,fontWeight:600,color:"#111",marginBottom:3}}>{pr?.name||"Unknown"}</div>
                     <div style={{fontSize:12,color:"#888",marginBottom:10}}>Completed {insp.date}</div>
-                    <div style={{display:"flex",gap:8,flex
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                      <Bdg bg="#E1F5EE" tx="#0F6E56">{satC} satisfactory</Bdg>
+                      {unsatC>0&&<Bdg bg="#FAECE7" tx="#993C1D">{unsatC} unsatisfactory</Bdg>}
+                      {flagC>0&&<Bdg bg="#FAEEDA" tx="#854F0B">{flagC} WOs</Bdg>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )
+        ):(
+          <>
+            {rptWOs.length===0&&<div style={{textAlign:"center",color:"#aaa",marginTop:40,fontSize:14}}>No work orders match.</div>}
+            {rptWOs.map(wo=>{
+              const sel=!!rptSel[wo.id];const p=db.properties.find(x=>x.id===wo.propertyId);const c=db.contractors.find(x=>x.id===wo.contractorId);
+              const sc=STA[wo.status]||STA.pending;const pc=PRI[wo.priority]||PRI.Medium;
+              return(
+                <div key={wo.id} style={{...S.card,marginBottom:8,border:sel?"1.5px solid #1D9E75":"0.5px solid rgba(0,0,0,0.08)",cursor:"pointer"}} onClick={()=>toggleRpt(wo.id)}>
+                  <div style={{padding:"12px 14px",display:"flex",gap:10}}>
+                    <div style={{width:22,height:22,borderRadius:6,flexShrink:0,marginTop:1,background:sel?"#1D9E75":"#fff",border:sel?"none":"1.5px solid rgba(0,0,0,0.2)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700}}>{sel?"✓":""}</div>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:13,fontWeight:700,color:"#111"}}>{wo.number}</span><div style={{display:"flex",gap:4}}><Bdg bg={pc.bg} tx={pc.tx}>{wo.priority}</Bdg><Bdg bg={sc.bg} tx={sc.tx}>{wo.status}</Bdg></div></div>
+                      <div style={{fontSize:14,fontWeight:600,color:"#111",marginBottom:2}}>{wo.item}</div>
+                      <div style={{fontSize:12,color:"#666",marginBottom:4,lineHeight:1.4}}>{wo.description.slice(0,80)}{wo.description.length>80?"…":""}</div>
+                      <div style={{fontSize:11,color:"#aaa"}}>{p?.name} · {c?.name} · {(Array.isArray(wo.photos)?wo.photos.length:0)} photos · {wo.createdAt}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+      <div style={{...S.bbar,position:"sticky",bottom:0}}>
+        <button style={{...S.pbtn(((rptMode==="wo"&&selWOs.length>0)||rptMode==="inspection")?"gn":"gh"),opacity:((rptMode==="wo"&&selWOs.length>0)||rptMode==="inspection")?1:0.5}} onClick={genPDF} disabled={rptGen||(rptMode==="wo"&&selWOs.length===0)}>
+          {rptGen?"Generating PDF…":rptMode==="wo"?`Download PDF (${selWOs.length} WO${selWOs.length!==1?"s":""})`:"Download Inspection Report"}
+        </button>
+      </div>
+    </>
+  );
+
+  // ── Layout ────────────────────────────────────────────────────────────────
+  const inFlow=tab==="inspect"&&scr!=="home";
+  return(
+    <>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+      <div style={S.app}>
+        <div style={S.sbar}><span>9:41 AM</span><span style={{fontWeight:600}}>PropInspect</span><span>●●●</span></div>
+        {inFlow&&<div style={S.tbar}>
+          <button style={{background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:20,padding:"5px 12px",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}
+            onClick={()=>{if(scr==="checklist")setScr("home");else if(scr==="issue")setScr("checklist");else if(scr==="preview")setScr("issue");else setScr("home");}}>‹ Back</button>
+          <span style={{fontSize:17,fontWeight:600,flex:1,letterSpacing:-0.3}}>{scr==="checklist"?prop?.name:scr==="issue"?"Flag Issue":scr==="preview"?"Preview":"Sent"}</span>
+        </div>}
+        {!inFlow&&<div style={S.tabs}>
+          {[["inspect","Inspect"],["properties","Properties"],["workorders","Orders"],["contractors","Contacts"],["checklist","Template"],["report","Report"]].map(([k,l])=>(
+            <button key={k} style={{...S.tab(tab===k),fontSize:10}} onClick={()=>{setTab(k);setScr("home");}}>{l}</button>
+          ))}
+        </div>}
+        {tab==="inspect"   &&scr==="home"      &&renderHome()}
+        {tab==="inspect"   &&scr==="checklist" &&renderChecklist()}
+        {tab==="inspect"   &&scr==="issue"     &&renderIssue()}
+        {tab==="inspect"   &&scr==="preview"   &&renderPreview()}
+        {tab==="inspect"   &&scr==="sent"      &&renderSent()}
+        {tab==="properties" &&renderProperties()}
+        {tab==="workorders" &&renderWorkOrders()}
+        {tab==="contractors"&&renderContractors()}
+        {tab==="checklist"  &&renderTemplate()}
+        {tab==="report"     &&renderReport()}
+      </div>
+    </>
+  );
+}
