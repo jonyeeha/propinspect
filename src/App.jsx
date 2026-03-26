@@ -5,6 +5,9 @@ const SUPA_URL = "https://efhbnddgcazzkbppzdqw.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVmaGJuZGRnY2F6emticHB6ZHF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1NTAzMjYsImV4cCI6MjA5MDEyNjMyNn0.BmEoq6jAq_2U0fK13YnCB9rtmblI5Cse3P-9-qtOkfA";
 const APP_URL  = "https://propinspect.vercel.app";
 const supabase = createClient(SUPA_URL, SUPA_KEY);
+const CACHE_KEY = "propinspect_cache_v1";
+const saveCache = (uid, data) => { try { localStorage.setItem(CACHE_KEY+"_"+uid, JSON.stringify(data)); } catch(_){} };
+const loadCache = (uid) => { try { const r=localStorage.getItem(CACHE_KEY+"_"+uid); return r?JSON.parse(r):null; } catch(_){ return null; } };
 
 const CHECKLIST_TEMPLATE = [
   { area: "Parking Lot", items: ["Condition", "Cleanliness", "Striping"] },
@@ -280,8 +283,23 @@ export default function App() {
 
   const loadAll = async () => {
     const uid = session.user.id;
+
+    // ── Step 1: Show cached data instantly so app feels immediate ─────────
+    const cached = loadCache(uid);
+    if (cached) {
+      setProfile(cached.profile||null);
+      setProperties(cached.properties||[]);
+      setContractors(cached.contractors||[]);
+      setClTemplate(cached.clTemplate||[]);
+      setWorkOrders(cached.workOrders||[]);
+      setInspections(cached.inspections||[]);
+      if (cached.mgrEmail) { setMgrEmail(cached.mgrEmail); setEditMgrVal(cached.mgrEmail); }
+      if (cached.nextWONum) setNextWONum(cached.nextWONum);
+      setDataLoaded(true); // render immediately from cache
+    }
+
+    // ── Step 2: Fetch fresh data from Supabase in background ──────────────
     try {
-      // Load each table separately so one failure doesn't block the rest
       const [prof, props, conts, tpl, wos, insps] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", uid).single(),
         supabase.from("properties").select("*").eq("user_id", uid).order("sort_order"),
@@ -291,7 +309,6 @@ export default function App() {
         supabase.from("inspections").select("*").eq("user_id", uid).order("created_at", {ascending:false}),
       ]);
 
-      // Log any query errors so we can see them
       if (prof.error)  console.error("profiles error:",           prof.error);
       if (props.error) console.error("properties error:",         props.error);
       if (conts.error) console.error("contractors error:",        conts.error);
@@ -300,47 +317,64 @@ export default function App() {
       if (insps.error) console.error("inspections error:",        insps.error);
 
       // Profile
+      let em = "";
       if (prof.data) {
         setProfile(prof.data);
-        const em = prof.data.manager_email || prof.data.email || "";
+        em = prof.data.manager_email || prof.data.email || "";
         setMgrEmail(em); setEditMgrVal(em);
       }
 
-      // Properties & Contractors — just load what exists, no seeding
+      // Properties & Contractors
       setProperties(props.data||[]);
       setContractors(conts.data||[]);
 
-      // Checklist template — seed defaults on first login
+      // Checklist template — seed on first login only
+      let tplData = tpl.data||[];
       if (!tpl.error && !tpl.data?.length) {
         const { data:ins, error:tplErr } = await supabase.from("checklist_template")
           .insert(CHECKLIST_TEMPLATE.map((x,i)=>({
             area:x.area, items:x.items, user_id:uid, sort_order:i,
           }))).select();
         if (tplErr) console.error("Seed template error:", tplErr);
-        setClTemplate(ins||[]);
-      } else {
-        setClTemplate(tpl.data||[]);
+        tplData = ins||[];
       }
+      setClTemplate(tplData);
 
       // Work orders
       setWorkOrders(wos.data||[]);
+      let nextNum = 1001;
       if (wos.data?.length) {
         const nums = wos.data.map(w=>parseInt((w.number||"").replace("WO-",""))).filter(n=>!isNaN(n));
-        if (nums.length) setNextWONum(Math.max(...nums)+1);
+        if (nums.length) nextNum = Math.max(...nums)+1;
+        setNextWONum(nextNum);
       }
 
-      // Inspections — handle missing status column gracefully
+      // Inspections
       setInspections(insps.data||[]);
+
+      // ── Save fresh data to cache for next load ─────────────────────────
+      saveCache(uid, {
+        profile: prof.data||null,
+        properties: props.data||[],
+        contractors: conts.data||[],
+        clTemplate: tplData,
+        workOrders: wos.data||[],
+        inspections: insps.data||[],
+        mgrEmail: em,
+        nextWONum: nextNum,
+      });
 
     } catch(err) {
       console.error("loadAll crashed:", err);
-      // Still mark as loaded so the app renders — data will be empty but usable
     } finally {
-      setDataLoaded(true);
+      setDataLoaded(true); // ensure rendered even if fetch failed
     }
   };
 
-  const signOut = () => supabase.auth.signOut();
+  const signOut = () => {
+    if (session) { try { localStorage.removeItem(CACHE_KEY+"_"+session.user.id); } catch(_){} }
+    supabase.auth.signOut();
+  };
 
   // ── Load saved report history ──────────────────────────────────────────────
   useEffect(() => {
@@ -545,6 +579,32 @@ export default function App() {
       setNewWO({wo:data, contractor:issCont});
       const k=`${issItem.area}::${issItem.item}`;
       setClState(prev=>({...prev,[k]:{...prev[k],status:"flagged"}}));
+
+      // ── Send email via Supabase Edge Function ──────────────────────────
+      if (issCont?.email) {
+        try {
+          await supabase.functions.invoke("send-work-order", {
+            body: {
+              woNumber:       number,
+              woId:           data.id,
+              token:          data.token,
+              propertyName:   prop.name || propName(prop),
+              area:           issItem.area,
+              item:           issItem.item,
+              description:    issDesc || "(No description)",
+              priority:       issPri,
+              contractorName: issCont.name,
+              contractorEmail:issCont.email,
+              managerEmail:   mgrEmail,
+              photos:         photoUrls,
+              createdAt:      today(),
+            },
+          });
+        } catch(emailErr) {
+          console.error("Email send error:", emailErr);
+          // Don't block the flow — WO is saved even if email fails
+        }
+      }
     }
     setScr("sent"); setSaving(false);
   };
@@ -557,6 +617,10 @@ export default function App() {
   const deleteWO = async id => {
     await supabase.from("work_orders").delete().eq("id",id);
     setWorkOrders(prev=>prev.filter(w=>w.id!==id));
+  };
+  const deleteInspection = async id => {
+    await supabase.from("inspections").delete().eq("id",id);
+    setInspections(prev=>prev.filter(i=>i.id!==id));
   };
 
   // ── Properties CRUD ────────────────────────────────────────────────────────
@@ -1754,9 +1818,18 @@ export default function App() {
                       {flagC>0&&<Bdg bg="#FAEEDA" tx="#854F0B">{flagC} WOs</Bdg>}
                     </div>
                   </div>
-                  <button style={{fontSize:11,padding:"4px 10px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.12)",background:"#F4F2EE",color:"#555",cursor:"pointer",fontFamily:"inherit",flexShrink:0,marginTop:2}} onClick={e=>{e.stopPropagation();setRptInspExp(p=>({...p,[insp.id]:!p[insp.id]}))}}>
-                    {isExp?"▲ Hide":"▼ Items"}
-                  </button>
+                  <div style={{display:"flex",gap:6,flexShrink:0,marginTop:2}}>
+                    <button style={{fontSize:11,padding:"4px 10px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.12)",background:"#F4F2EE",color:"#555",cursor:"pointer",fontFamily:"inherit"}} onClick={e=>{e.stopPropagation();setRptInspExp(p=>({...p,[insp.id]:!p[insp.id]}));}}>
+                      {isExp?"▲ Hide":"▼ Items"}
+                    </button>
+                    <button style={{fontSize:11,padding:"4px 10px",borderRadius:20,border:"0.5px solid #F09595",background:"#FCEBEB",color:"#A32D2D",cursor:"pointer",fontFamily:"inherit"}} onClick={async e=>{
+                      e.stopPropagation();
+                      if(!window.confirm("Delete this inspection? This cannot be undone.")) return;
+                      await deleteInspection(insp.id);
+                      setRptInspSel(p=>{const n={...p};delete n[insp.id];return n;});
+                      setRptInspExp(p=>{const n={...p};delete n[insp.id];return n;});
+                    }}>Delete</button>
+                  </div>
                 </div>
                 {isExp&&(
                   <div style={{borderTop:"0.5px solid rgba(0,0,0,0.06)",padding:"10px 14px 14px"}}>
@@ -1810,7 +1883,16 @@ export default function App() {
                     <div style={{fontSize:14,fontWeight:600,color:"#111"}}>{r.name.replace(/_/g," ").replace(".pdf","")}</div>
                     <div style={{fontSize:12,color:"#888",marginTop:2}}>{r.date}</div>
                   </div>
-                  <a href={r.url} target="_blank" rel="noopener noreferrer" style={{fontSize:13,padding:"6px 14px",borderRadius:20,border:"none",background:"#0F1F38",color:"#fff",textDecoration:"none",fontFamily:"inherit",fontWeight:600}}>↓ Open</a>
+                  <div style={{display:"flex",gap:6}}>
+                    <a href={r.url} target="_blank" rel="noopener noreferrer" style={{fontSize:13,padding:"6px 14px",borderRadius:20,border:"none",background:"#0F1F38",color:"#fff",textDecoration:"none",fontFamily:"inherit",fontWeight:600}}>↓ Open</a>
+                    <button style={{fontSize:13,padding:"6px 12px",borderRadius:20,border:"0.5px solid #F09595",background:"#FCEBEB",color:"#A32D2D",cursor:"pointer",fontFamily:"inherit",fontWeight:600}} onClick={async()=>{
+                      if(!window.confirm(`Delete "${r.name}"? This cannot be undone.`)) return;
+                      try {
+                        await supabase.storage.from("photos").remove([`reports/${r.name}`]);
+                        setSavedReports(prev=>prev.filter((_,j)=>j!==i));
+                      } catch(e){ alert("Error deleting report: "+e.message); }
+                    }}>Delete</button>
+                  </div>
                 </div>
               </div>
             ))}
