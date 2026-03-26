@@ -29,18 +29,7 @@ const CHECKLIST_TEMPLATE = [
 ];
 
 
-const DEFAULT_PROPERTIES = [
-  { name:"Verrado Marketplace",  address:"", vacantUnits:"", type:"Commercial", inspectionFreq:"Monthly" },
-  { name:"Canyon Trails",         address:"", vacantUnits:"", type:"Commercial", inspectionFreq:"Monthly" },
-  { name:"Tempe Marketplace",     address:"", vacantUnits:"", type:"Commercial", inspectionFreq:"Monthly" },
-  { name:"Novus Place",           address:"", vacantUnits:"", type:"Commercial", inspectionFreq:"Monthly" },
-  { name:"Superstition Gateway",  address:"", vacantUnits:"", type:"Commercial", inspectionFreq:"Monthly" },
-];
-const DEFAULT_CONTRACTORS = [
-  { name:"Maintenance Contractor", trade:"Maintenance", email:"", phone:"", license:"", avgResponse:"" },
-  { name:"Sweeping Contractor",    trade:"Sweeping",    email:"", phone:"", license:"", avgResponse:"" },
-  { name:"Security Contractor",    trade:"Security",    email:"", phone:"", license:"", avgResponse:"" },
-];
+// No default seed data — users add their own properties and contractors
 
 const PRI  = { Urgent:{bg:"#FCEBEB",tx:"#A32D2D"}, High:{bg:"#FAECE7",tx:"#993C1D"}, Medium:{bg:"#FAEEDA",tx:"#854F0B"}, Low:{bg:"#EAF3DE",tx:"#3B6D11"} };
 const STA  = { pending:{bg:"#FAEEDA",tx:"#854F0B"}, accepted:{bg:"#E6F1FB",tx:"#185FA5"}, complete:{bg:"#E1F5EE",tx:"#0F6E56"} };
@@ -317,33 +306,9 @@ export default function App() {
         setMgrEmail(em); setEditMgrVal(em);
       }
 
-      // Properties — seed defaults on first login
-      if (!props.error && !props.data?.length) {
-        const { data:ins, error:propErr } = await supabase.from("properties")
-          .insert(DEFAULT_PROPERTIES.map((x,i)=>({
-            user_id:uid, sort_order:i,
-            name:x.name, address:"",
-            vacant_units:"", type:"Commercial",
-            inspection_freq:"Monthly",
-          }))).select();
-        if (propErr) console.error("Seed properties error:", propErr);
-        setProperties(ins||[]);
-      } else {
-        setProperties(props.data||[]);
-      }
-
-      // Contractors — seed defaults on first login
-      if (!conts.error && !conts.data?.length) {
-        const { data:ins, error:contErr } = await supabase.from("contractors")
-          .insert(DEFAULT_CONTRACTORS.map(x=>({
-            user_id:uid, name:x.name, trade:x.trade||"",
-            email:"", phone:"", license:"", avg_response:"",
-          }))).select();
-        if (contErr) console.error("Seed contractors error:", contErr);
-        setContractors(ins||[]);
-      } else {
-        setContractors(conts.data||[]);
-      }
+      // Properties & Contractors — just load what exists, no seeding
+      setProperties(props.data||[]);
+      setContractors(conts.data||[]);
 
       // Checklist template — seed defaults on first login
       if (!tpl.error && !tpl.data?.length) {
@@ -1233,6 +1198,14 @@ export default function App() {
       })()}
 
       <div style={S.slabel}>Properties — tap to {prop?"start another":"start"} inspection</div>
+      {properties.length===0&&(
+        <div style={{textAlign:"center",padding:"32px 16px",background:"#fff",borderRadius:14,border:"0.5px solid rgba(0,0,0,0.08)",marginBottom:10}}>
+          <div style={{fontSize:28,marginBottom:12}}>🏢</div>
+          <div style={{fontSize:15,fontWeight:600,color:"#111",marginBottom:6}}>No properties yet</div>
+          <div style={{fontSize:13,color:"#888",marginBottom:16,lineHeight:1.6}}>Add your properties in the Properties tab to get started.</div>
+          <button style={{...S.pbtn("dk"),width:"auto",padding:"10px 24px",fontSize:13,display:"inline-block"}} onClick={()=>setTab("properties")}>Go to Properties →</button>
+        </div>
+      )}
       {properties.map((pr,i)=>{
         const av=ava(propName(pr),i);
         const pending=workOrders.filter(w=>w.property_id===pr.id&&w.status==="pending").length;
