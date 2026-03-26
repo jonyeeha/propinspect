@@ -295,13 +295,24 @@ export default function App() {
     }
     // Seed defaults on first login
     if (!props.data?.length) {
-      const { data:ins } = await supabase.from("properties")
-        .insert(DEFAULT_PROPERTIES.map((x,i)=>({...x,user_id:uid,sort_order:i,vacant_units:x.vacantUnits||"",inspection_freq:x.inspectionFreq||"Monthly"}))).select();
+      const { data:ins, error:propErr } = await supabase.from("properties")
+        .insert(DEFAULT_PROPERTIES.map((x,i)=>({
+          user_id:uid, sort_order:i,
+          name:x.name, address:x.address||"",
+          vacant_units:"", type:x.type||"Commercial",
+          inspection_freq:x.inspectionFreq||"Monthly",
+        }))).select();
+      if (propErr) console.error("Seed properties error:", propErr);
       setProperties(ins||[]);
     } else setProperties(props.data);
     if (!conts.data?.length) {
-      const { data:ins } = await supabase.from("contractors")
-        .insert(DEFAULT_CONTRACTORS.map(x=>({...x,user_id:uid,avg_response:x.avgResponse||""}))).select();
+      const { data:ins, error:contErr } = await supabase.from("contractors")
+        .insert(DEFAULT_CONTRACTORS.map(x=>({
+          user_id:uid,
+          name:x.name, trade:x.trade||"",
+          email:"", phone:"", license:"", avg_response:"",
+        }))).select();
+      if (contErr) console.error("Seed contractors error:", contErr);
       setContractors(ins||[]);
     } else setContractors(conts.data);
     if (!tpl.data?.length) {
@@ -479,20 +490,31 @@ export default function App() {
   const FREQS = ["Monthly","Quarterly","Bi-Annual","Annual"];
   const addProperty = async () => {
     if (!newP.name.trim()) return;
-    const { data } = await supabase.from("properties")
-      .insert({...newP, user_id:session.user.id, sort_order:properties.length,
-               vacant_units:newP.vacantUnits||"", inspection_freq:newP.inspectionFreq||"Monthly"}).select().single();
-    if (data) setProperties(prev=>[...prev,data]);
+    const payload = {
+      user_id:         session.user.id,
+      name:            newP.name.trim(),
+      address:         newP.address || "",
+      vacant_units:    newP.vacantUnits || "",
+      type:            newP.type || "Commercial",
+      inspection_freq: newP.inspectionFreq || "Monthly",
+      sort_order:      properties.length,
+    };
+    const { data, error } = await supabase.from("properties").insert(payload).select().single();
+    if (error) { console.error("addProperty error:", error); alert("Error saving property: " + error.message); return; }
+    if (data) setProperties(prev => [...prev, data]);
     setNewP({name:"",address:"",vacantUnits:"",type:"",inspectionFreq:"Monthly"}); setShowAddP(false);
   };
   const saveProperty = async () => {
-    const { data } = await supabase.from("properties").update({
-      name:editingP.name, address:editingP.address||"",
-      vacant_units:editingP.vacantUnits||editingP.vacant_units||"",
-      type:editingP.type||"",
-      inspection_freq:editingP.inspectionFreq||editingP.inspection_freq||"Monthly",
-    }).eq("id",editingP.id).select().single();
-    if (data) setProperties(prev=>prev.map(p=>p.id===editingP.id?data:p));
+    const payload = {
+      name:            editingP.name,
+      address:         editingP.address || "",
+      vacant_units:    editingP.vacantUnits || editingP.vacant_units || "",
+      type:            editingP.type || "",
+      inspection_freq: editingP.inspectionFreq || editingP.inspection_freq || "Monthly",
+    };
+    const { data, error } = await supabase.from("properties").update(payload).eq("id", editingP.id).select().single();
+    if (error) { console.error("saveProperty error:", error); alert("Error updating property: " + error.message); return; }
+    if (data) setProperties(prev => prev.map(p => p.id === editingP.id ? data : p));
     setEditingP(null);
   };
   const deleteProperty = async id => {
@@ -503,18 +525,32 @@ export default function App() {
   // ── Contractors CRUD ───────────────────────────────────────────────────────
   const addC = async () => {
     if (!newC.name) return;
-    const { data } = await supabase.from("contractors")
-      .insert({...newC, user_id:session.user.id, avg_response:newC.avgResponse||""}).select().single();
-    if (data) setContractors(prev=>[...prev,data]);
+    const payload = {
+      user_id:      session.user.id,
+      name:         newC.name,
+      trade:        newC.trade || "",
+      email:        newC.email || "",
+      phone:        newC.phone || "",
+      license:      newC.license || "",
+      avg_response: newC.avgResponse || "",
+    };
+    const { data, error } = await supabase.from("contractors").insert(payload).select().single();
+    if (error) { console.error("addC error:", error); alert("Error saving contractor: " + error.message); return; }
+    if (data) setContractors(prev => [...prev, data]);
     setNewC({name:"",trade:"",email:"",phone:"",license:"",avgResponse:""}); setShowAddC(false);
   };
   const saveContractor = async () => {
-    const { data } = await supabase.from("contractors").update({
-      name:editingC.name, trade:editingC.trade||"", email:editingC.email||"",
-      phone:editingC.phone||"", license:editingC.license||"",
-      avg_response:editingC.avgResponse||editingC.avg_response||"",
-    }).eq("id",editingC.id).select().single();
-    if (data) setContractors(prev=>prev.map(c=>c.id===editingC.id?data:c));
+    const payload = {
+      name:         editingC.name,
+      trade:        editingC.trade || "",
+      email:        editingC.email || "",
+      phone:        editingC.phone || "",
+      license:      editingC.license || "",
+      avg_response: editingC.avgResponse || editingC.avg_response || "",
+    };
+    const { data, error } = await supabase.from("contractors").update(payload).eq("id", editingC.id).select().single();
+    if (error) { console.error("saveContractor error:", error); alert("Error updating contractor: " + error.message); return; }
+    if (data) setContractors(prev => prev.map(c => c.id === editingC.id ? data : c));
     setEditingC(null);
   };
   const deleteContractor = async id => {
