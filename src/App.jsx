@@ -412,10 +412,16 @@ export default function App() {
   const getPropAddr  = id => properties.find(x=>x.id===id)?.address || "";
 
   // ── In-progress inspection ────────────────────────────────────────────────
-  const [draftKey,    setDraftKey]    = useState(null);  // Supabase inspection id when draft exists
+  const [draftKey,    setDraftKey]    = useState(null);
   const [draftPropId, setDraftPropId] = useState(null);
   const [showResume,  setShowResume]  = useState(false);
-  const [resumeData,  setResumeData]  = useState(null);  // {id, property_id, items, date}
+  const [resumeData,  setResumeData]  = useState(null);
+  // Use a ref so autoSaveDraft always sees the current draftKey without stale closure
+  const draftKeyRef = React.useRef(null);
+  const saveTimerRef = React.useRef(null);
+
+  // Sync ref whenever draftKey state changes
+  React.useEffect(() => { draftKeyRef.current = draftKey; }, [draftKey]);
 
   // Check for in-progress draft on load
   useEffect(() => {
@@ -424,15 +430,33 @@ export default function App() {
     if (draft) { setResumeData(draft); setShowResume(true); }
   }, [dataLoaded]);
 
+  // autoSaveDraft uses ref so it always has the latest draftKey
   const autoSaveDraft = async (propId, items) => {
-    if (!session) return;
-    if (draftKey) {
-      await supabase.from("inspections").update({items, date:today()}).eq("id", draftKey);
-    } else {
-      const { data } = await supabase.from("inspections")
-        .insert({user_id:session.user.id, property_id:propId, date:today(), items, status:"draft"}).select().single();
-      if (data) { setDraftKey(data.id); setInspections(prev=>[data,...prev.filter(i=>i.status!=="draft")]); }
-    }
+    if (!session || !propId) return;
+    try {
+      const currentDraftKey = draftKeyRef.current;
+      if (currentDraftKey) {
+        const { error } = await supabase.from("inspections")
+          .update({items, date:today()}).eq("id", currentDraftKey);
+        if (error) console.error("Draft update error:", error);
+      } else {
+        const { data, error } = await supabase.from("inspections")
+          .insert({user_id:session.user.id, property_id:propId, date:today(), items, status:"draft"})
+          .select().single();
+        if (error) { console.error("Draft insert error:", error); return; }
+        if (data) {
+          draftKeyRef.current = data.id;
+          setDraftKey(data.id);
+          setInspections(prev=>[data,...prev.filter(i=>i.status!=="draft")]);
+        }
+      }
+    } catch(e) { console.error("autoSaveDraft error:", e); }
+  };
+
+  // Debounced save — waits 1.5s after last change before saving
+  const scheduleSave = (propId, items) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => autoSaveDraft(propId, items), 1500);
   };
 
   // ── Checklist ──────────────────────────────────────────────────────────────
@@ -469,30 +493,53 @@ export default function App() {
 
   const finishInspection = async () => {
     setSaving(true);
-    if (draftKey) {
-      // Promote draft to complete
-      const { data } = await supabase.from("inspections")
-        .update({items:clState, status:"complete", date:today()}).eq("id",draftKey).select().single();
-      if (data) setInspections(prev=>prev.map(i=>i.id===draftKey?data:i));
-    } else {
-      const { data } = await supabase.from("inspections")
-        .insert({user_id:session.user.id, property_id:prop.id, date:today(), items:clState, status:"complete"}).select().single();
-      if (data) setInspections(prev=>[data,...prev]);
+    // Cancel any pending auto-save
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    try {
+      const currentDraftKey = draftKeyRef.current;
+      if (currentDraftKey) {
+        const { data, error } = await supabase.from("inspections")
+          .update({items:clState, status:"complete", date:today()}).eq("id",currentDraftKey).select().single();
+        if (error) { console.error("Finish inspection error:", error); alert("Error saving inspection: "+error.message); setSaving(false); return; }
+        if (data) setInspections(prev=>prev.map(i=>i.id===currentDraftKey?data:i));
+      } else {
+        const { data, error } = await supabase.from("inspections")
+          .insert({user_id:session.user.id, property_id:prop.id, date:today(), items:clState, status:"complete"}).select().single();
+        if (error) { console.error("Finish inspection error:", error); alert("Error saving inspection: "+error.message); setSaving(false); return; }
+        if (data) setInspections(prev=>[data,...prev]);
+      }
+      // Only reset after confirmed save
+      draftKeyRef.current = null;
+      setDraftKey(null); setDraftPropId(null);
+      setClState(freshCl()); setProp(null); setScr("home");
+    } catch(e) {
+      console.error("finishInspection error:", e);
+      alert("Error saving inspection. Please try again.");
     }
-    setDraftKey(null); setDraftPropId(null);
-    setClState(freshCl()); setProp(null); setScr("home"); setSaving(false);
+    setSaving(false);
   };
 
   const setSat = (k,val) => {
     setClState(prev => {
       const next = {...prev,[k]:{...prev[k],status:prev[k]?.status===val?"none":val}};
-      // Auto-save draft after a short delay
-      setTimeout(() => autoSaveDraft(draftPropId||prop?.id, next), 800);
+      scheduleSave(draftPropId||prop?.id, next);
       return next;
     });
   };
-  const setItemPhotos   = (k,photos)  => setClState(prev=>({...prev,[k]:{...prev[k],photos}}));
-  const setItemComment  = (k,comment) => setClState(prev=>({...prev,[k]:{...prev[k],comment}}));
+  const setItemPhotos = (k,photos) => {
+    setClState(prev => {
+      const next = {...prev,[k]:{...prev[k],photos}};
+      scheduleSave(draftPropId||prop?.id, next);
+      return next;
+    });
+  };
+  const setItemComment = (k,comment) => {
+    setClState(prev => {
+      const next = {...prev,[k]:{...prev[k],comment}};
+      scheduleSave(draftPropId||prop?.id, next);
+      return next;
+    });
+  };
 
   const done  = Object.values(clState).filter(v=>v.status!=="none").length;
   const total = Object.keys(clState).length;
@@ -1135,19 +1182,47 @@ export default function App() {
 
   const renderHome = () => (
     <div style={S.body}>
-      {showResume&&resumeData&&(()=>{
+
+      {/* ── Active inspection banner (shown while inspecting in this session) ── */}
+      {prop&&(
+        <div style={{background:"#0F1F38",borderRadius:14,padding:"14px 16px",marginBottom:16,border:"1.5px solid #1D9E75"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+            <div style={{width:10,height:10,borderRadius:"50%",background:"#1D9E75",flexShrink:0,boxShadow:"0 0 0 3px rgba(29,158,117,0.3)"}}/>
+            <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>Inspection in progress</div>
+          </div>
+          <div style={{fontSize:13,color:"rgba(180,200,230,0.9)",marginBottom:12}}>{propName(prop)} · Auto-saving as you go</div>
+          <button style={{...S.pbtn("gn"),padding:"10px 0",fontSize:14,fontWeight:700}} onClick={()=>setScr("checklist")}>
+            Continue inspection →
+          </button>
+        </div>
+      )}
+
+      {/* ── Resume banner (shown on reload when a saved draft exists) ── */}
+      {!prop&&showResume&&resumeData&&(()=>{
         const rProp=properties.find(p=>p.id===resumeData.property_id);
+        const draftItems=resumeData.items||{};
+        const rated=Object.values(draftItems).filter(v=>v&&v.status&&v.status!=="none").length;
+        const total=Object.values(draftItems).length;
         return(
-          <div style={{background:"#E6F1FB",border:"1.5px solid #378ADD",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
-            <div style={{fontSize:14,fontWeight:700,color:"#0F1F38",marginBottom:4}}>Inspection in progress</div>
-            <div style={{fontSize:13,color:"#185FA5",marginBottom:12}}>{rProp?.name} · Started {resumeData.date}</div>
+          <div style={{background:"#FFF9EC",border:"1.5px solid #FAC775",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+              <div style={{width:10,height:10,borderRadius:"50%",background:"#FAC775",flexShrink:0}}/>
+              <div style={{fontSize:14,fontWeight:700,color:"#0F1F38"}}>Inspection saved — not finished</div>
+            </div>
+            <div style={{fontSize:13,color:"#854F0B",marginBottom:4}}>{rProp?.name}</div>
+            <div style={{fontSize:12,color:"#999",marginBottom:12}}>Started {resumeData.date} · {rated} of {total} items rated</div>
+            <div style={{background:"rgba(0,0,0,0.06)",borderRadius:4,height:5,marginBottom:12}}>
+              <div style={{height:5,borderRadius:4,background:"#FAC775",width:`${total?Math.round(rated/total*100):0}%`}}/>
+            </div>
             <div style={{display:"flex",gap:8}}>
-              <button style={{...S.pbtn("dk"),flex:2,padding:"10px 0",fontSize:13}} onClick={()=>{
+              <button style={{...S.pbtn("dk"),flex:2,padding:"10px 0",fontSize:13,fontWeight:700}} onClick={()=>{
+                draftKeyRef.current = resumeData.id;
                 setDraftKey(resumeData.id);
                 setDraftPropId(resumeData.property_id);
                 startInsp(rProp, resumeData.items);
               }}>Resume inspection</button>
               <button style={{...S.pbtn("gh"),flex:1,padding:"10px 0",fontSize:13}} onClick={async()=>{
+                if(!window.confirm("Discard this inspection? This cannot be undone.")) return;
                 await supabase.from("inspections").delete().eq("id",resumeData.id);
                 setInspections(prev=>prev.filter(i=>i.id!==resumeData.id));
                 setShowResume(false); setResumeData(null);
@@ -1156,19 +1231,25 @@ export default function App() {
           </div>
         );
       })()}
-      <div style={S.slabel}>Properties — tap to start new inspection</div>
+
+      <div style={S.slabel}>Properties — tap to {prop?"start another":"start"} inspection</div>
       {properties.map((pr,i)=>{
         const av=ava(propName(pr),i);
         const pending=workOrders.filter(w=>w.property_id===pr.id&&w.status==="pending").length;
+        const isActive=prop?.id===pr.id;
+        const isResume=!prop&&resumeData?.property_id===pr.id;
         return(
-          <div key={pr.id} style={S.card}>
-            <div style={S.crow} onClick={()=>startInsp(pr)}>
+          <div key={pr.id} style={{...S.card, border: isActive?"1.5px solid #1D9E75":isResume?"1.5px solid #FAC775":"0.5px solid rgba(0,0,0,0.08)"}}>
+            <div style={{...S.crow, background: isActive?"#F0FBF7":isResume?"#FFFBF0":"#fff"}} onClick={()=>isActive?setScr("checklist"):startInsp(pr)}>
               <div style={{...S.av(av.bg,av.tx,44),borderRadius:12,fontSize:22}}>{propIcon(propType(pr))}</div>
               <div style={{flex:1}}>
                 <div style={{fontSize:15,fontWeight:600,color:"#111"}}>{propName(pr)}</div>
                 <div style={{fontSize:12,color:"#888",marginTop:2}}>{propFreq(pr)}{propVac(pr)?` · ${propVac(pr)} vacant`:""}</div>
+                {isActive&&<div style={{fontSize:11,color:"#1D9E75",fontWeight:600,marginTop:3}}>● Inspection in progress</div>}
+                {isResume&&!prop&&<div style={{fontSize:11,color:"#854F0B",fontWeight:600,marginTop:3}}>● Saved draft — tap to resume</div>}
               </div>
-              {pending>0&&<Bdg bg="#FAECE7" tx="#993C1D">{pending} pending</Bdg>}
+              {!isActive&&pending>0&&<Bdg bg="#FAECE7" tx="#993C1D">{pending} pending</Bdg>}
+              {isActive&&<Bdg bg="#E1F5EE" tx="#1D9E75">Active</Bdg>}
               <span style={{color:"#ccc",fontSize:20,marginLeft:4}}>›</span>
             </div>
           </div>
