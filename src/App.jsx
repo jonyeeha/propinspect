@@ -1007,8 +1007,8 @@ export default function App() {
           const flagC=allItems.filter(([,v])=>v.status==="flagged").length;
           const ratedC=satC+unsatC+flagC;
           y+=4;
-          [[`${satC} Satisfactory`,"#0F6E56","#E1F5EE"],[`${unsatC} Unsatisfactory`,"#993C1D","#FAECE7"],[`${flagC} Work Orders`,"#854F0B","#FAEEDA"]].forEach(([lbl,tx,bg],si)=>{
-            const bx=ML+si*(CW/3);
+          [[`${satC} Satisfactory`,"#0F6E56","#E1F5EE"],[`${unsatC} Unsatisfactory`,"#993C1D","#FAECE7"],[`${flagC} Work Orders`,"#854F0B","#FAEEDA"]].forEach(([lbl,tx,bg],sidx)=>{
+            const bx=ML+sidx*(CW/3);
             const[br,bg2,bb]=hexRgb(bg);doc.setFillColor(br,bg2,bb);doc.roundedRect(bx,y,CW/3-4,16,3,3,"F");
             const[tr,tg,tb]=hexRgb(tx);doc.setTextColor(tr,tg,tb);
             doc.setFont("helvetica","bold");doc.setFontSize(10);
@@ -1026,8 +1026,8 @@ export default function App() {
               state:insp.items?.[`${sec.area}::${item}`]||{status:"none",photos:[],comment:""}
             })).filter(x=>{
               if(x.state.status==="none") return false;
-              const ik=`${insp.id}::${sec.area}::${item}`;
-              return rptItemSel[ik]!==false; // include unless explicitly deselected
+              const ik=`${insp.id}::${sec.area}::${x.item}`;  // use x.item not item (out of scope here)
+              return rptItemSel[ik]!==false;
             });
             if(!si.length)return;
 
