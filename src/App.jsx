@@ -24,6 +24,8 @@ const CHECKLIST_TEMPLATE = [
   { area: "Maintenance Staff", items: ["Uniform Standards", "Vehicle Standards", "Visibility"] },
   { area: "Security Staff", items: ["Uniform Standards", "Vehicle Standards", "Visibility"] },
   { area: "Vacant Suites", items: ["Cleanliness (Inside and Outside)", "Vacant Window Graphics", "Leasing Information"] },
+  { area: "Tenant Signage", items: ["Condition", "Operational"] },
+  { area: "Miscellaneous", items: [] },
 ];
 
 
@@ -82,7 +84,8 @@ const uploadPhoto = async (dataUrl, path) => {
 
 
 function PhotoPicker({photos=[],onChange,label="Photos"}) {
-  const ref = useRef();
+  const camRef = useRef();
+  const galRef = useRef();
   const add = async e => { const d=await Promise.all(Array.from(e.target.files).map(toDataURL)); onChange([...photos,...d]); e.target.value=""; };
   const rm  = i => onChange(photos.filter((_,j)=>j!==i));
   return (
@@ -96,10 +99,17 @@ function PhotoPicker({photos=[],onChange,label="Photos"}) {
           </div>
         ))}
       </div>}
-      <input ref={ref} type="file" accept="image/*" multiple capture="environment" style={{display:"none"}} onChange={add}/>
-      <div style={{background:"#F4F2EE",border:"1.5px dashed rgba(0,0,0,0.15)",borderRadius:10,padding:14,textAlign:"center",cursor:"pointer"}} onClick={()=>ref.current.click()}>
-        <div style={{fontSize:20}}>📸</div>
-        <div style={{fontSize:13,color:"#888",marginTop:3}}>Tap to take or upload photo</div>
+      <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={add}/>
+      <input ref={galRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={add}/>
+      <div style={{display:"flex",gap:8}}>
+        <div style={{flex:1,background:"#F4F2EE",border:"1.5px dashed rgba(0,0,0,0.15)",borderRadius:10,padding:"12px 8px",textAlign:"center",cursor:"pointer"}} onClick={()=>camRef.current.click()}>
+          <div style={{fontSize:18}}>📷</div>
+          <div style={{fontSize:12,color:"#888",marginTop:2}}>Take photo</div>
+        </div>
+        <div style={{flex:1,background:"#F4F2EE",border:"1.5px dashed rgba(0,0,0,0.15)",borderRadius:10,padding:"12px 8px",textAlign:"center",cursor:"pointer"}} onClick={()=>galRef.current.click()}>
+          <div style={{fontSize:18}}>🖼️</div>
+          <div style={{fontSize:12,color:"#888",marginTop:2}}>Upload photo</div>
+        </div>
       </div>
     </div>
   );
@@ -218,6 +228,25 @@ export default function App() {
   const [rptTitle,  setRptTitle]   = useState("Property Inspection Report");
   const [rptGen,    setRptGen]     = useState(false);
   const [rptMode,   setRptMode]    = useState("wo");
+  const [rptHistory,setRptHistory]  = useState([]);  // {id, title, date, url}
+  const [rptInspSel,setRptInspSel]  = useState({});  // selected inspection ids
+  const [rptItemSel,setRptItemSel]  = useState({});  // selected items within inspections: {inspId_areaItem: bool}
+  const [rptInspExp,setRptInspExp]  = useState({});  // expanded inspection in selector
+  const [savedReports,setSavedReports] = useState([]);
+
+  // Load saved report history from Supabase storage listing
+  useEffect(() => {
+    if (!session) return;
+    (async () => {
+      const { data } = await supabase.storage.from("photos").list("reports/", {limit:100, sortBy:{column:"created_at",order:"desc"}});
+      if (data) setSavedReports(data.map(f => ({
+        name: f.name,
+        date: f.name.split("_")[0] || f.name.slice(0,10),
+        url:  supabase.storage.from("photos").getPublicUrl(`reports/${f.name}`).data.publicUrl,
+      })));
+    })();
+  }, [session]);
+
 
   // ── Auth listener ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -310,42 +339,103 @@ export default function App() {
   const getContTrade = id => contractors.find(x=>x.id===id)?.trade || "";
   const getPropAddr  = id => properties.find(x=>x.id===id)?.address || "";
 
+  // ── In-progress inspection ────────────────────────────────────────────────
+  const [draftKey,    setDraftKey]    = useState(null);  // Supabase inspection id when draft exists
+  const [draftPropId, setDraftPropId] = useState(null);
+  const [showResume,  setShowResume]  = useState(false);
+  const [resumeData,  setResumeData]  = useState(null);  // {id, property_id, items, date}
+
+  // Check for in-progress draft on load
+  useEffect(() => {
+    if (!dataLoaded) return;
+    const draft = inspections.find(i => i.status === "draft");
+    if (draft) { setResumeData(draft); setShowResume(true); }
+  }, [dataLoaded]);
+
+  const autoSaveDraft = async (propId, items) => {
+    if (!session) return;
+    if (draftKey) {
+      await supabase.from("inspections").update({items, date:today()}).eq("id", draftKey);
+    } else {
+      const { data } = await supabase.from("inspections")
+        .insert({user_id:session.user.id, property_id:propId, date:today(), items, status:"draft"}).select().single();
+      if (data) { setDraftKey(data.id); setInspections(prev=>[data,...prev.filter(i=>i.status!=="draft")]); }
+    }
+  };
+
   // ── Checklist ──────────────────────────────────────────────────────────────
   const freshCl = useCallback(() => {
     const st = {};
-    clTemplate.forEach(s => (s.items||[]).forEach(it => { st[`${s.area}::${it}`] = {status:"none", photos:[]}; }));
+    clTemplate.forEach(s => (s.items||[]).forEach(it => { st[`${s.area}::${it}`] = {status:"none", photos:[], comment:""}; }));
     return st;
   }, [clTemplate]);
 
-  const startInsp = pr => {
+  const startInsp = (pr, resumeItems=null) => {
     setProp(pr);
-    const st = freshCl();
-    workOrders.filter(w => w.property_id===pr.id && w.status==="pending").forEach(w => {
-      const k=`${w.area}::${w.item}`; if(st[k]) st[k]={...st[k],status:"flagged"};
-    });
+    let st;
+    if (resumeItems) {
+      // Resume: restore saved state, converting plain objects back
+      st = {};
+      clTemplate.forEach(s => (s.items||[]).forEach(it => {
+        const k=`${s.area}::${it}`;
+        st[k] = resumeItems[k] || {status:"none",photos:[]};
+      }));
+      // Also restore misc/free-form items from draft
+      Object.keys(resumeItems).forEach(k => { if (!st[k]) st[k]=resumeItems[k]; });
+    } else {
+      st = freshCl();
+      workOrders.filter(w => w.property_id===pr.id && w.status==="pending").forEach(w => {
+        const k=`${w.area}::${w.item}`; if(st[k]) st[k]={...st[k],status:"flagged"};
+      });
+    }
     setClState(st);
     setOpenA({[clTemplate[0]?.area]:true});
+    setDraftPropId(pr.id);
+    setShowResume(false);
     setScr("checklist");
   };
 
   const finishInspection = async () => {
     setSaving(true);
-    const { data } = await supabase.from("inspections")
-      .insert({user_id:session.user.id, property_id:prop.id, date:today(), items:clState}).select().single();
-    if (data) setInspections(prev=>[data,...prev]);
+    if (draftKey) {
+      // Promote draft to complete
+      const { data } = await supabase.from("inspections")
+        .update({items:clState, status:"complete", date:today()}).eq("id",draftKey).select().single();
+      if (data) setInspections(prev=>prev.map(i=>i.id===draftKey?data:i));
+    } else {
+      const { data } = await supabase.from("inspections")
+        .insert({user_id:session.user.id, property_id:prop.id, date:today(), items:clState, status:"complete"}).select().single();
+      if (data) setInspections(prev=>[data,...prev]);
+    }
+    setDraftKey(null); setDraftPropId(null);
     setClState(freshCl()); setProp(null); setScr("home"); setSaving(false);
   };
 
-  const setSat = (k,val) => setClState(prev=>({...prev,[k]:{...prev[k],status:prev[k]?.status===val?"none":val}}));
-  const setItemPhotos = (k,photos) => setClState(prev=>({...prev,[k]:{...prev[k],photos}}));
+  const setSat = (k,val) => {
+    setClState(prev => {
+      const next = {...prev,[k]:{...prev[k],status:prev[k]?.status===val?"none":val}};
+      // Auto-save draft after a short delay
+      setTimeout(() => autoSaveDraft(draftPropId||prop?.id, next), 800);
+      return next;
+    });
+  };
+  const setItemPhotos   = (k,photos)  => setClState(prev=>({...prev,[k]:{...prev[k],photos}}));
+  const setItemComment  = (k,comment) => setClState(prev=>({...prev,[k]:{...prev[k],comment}}));
 
   const done  = Object.values(clState).filter(v=>v.status!=="none").length;
   const total = Object.keys(clState).length;
   const pct   = total ? Math.round(done/total*100) : 0;
 
   const openIssue = (area, item) => {
-    setIssItem({area,item}); setIssDesc(""); setIssPri("Medium");
-    setIssCont(contractors[0]||null); setIssPhotos([]); setScr("issue");
+    // Pre-populate with any photos already taken for this inspection item
+    const existingPhotos = clState[`${area}::${item}`]?.photos || [];
+    const existingComment = clState[`${area}::${item}`]?.comment || "";
+    setIssItem({area,item}); 
+    setIssDesc(existingComment);  // pre-fill description from inspection comment
+    setIssPri("Medium");
+    setIssCont(contractors[0]||null); 
+    setIssPhotos(existingPhotos);  // reuse photos from inspection — no need to re-take
+    setScr("issue");
   };
 
   // ── Create work order ──────────────────────────────────────────────────────
@@ -572,7 +662,98 @@ export default function App() {
       y=100;
       drawFooter();
 
-      if(rptMode==="wo"){
+      if(rptMode==="combined"){
+        // Combined: WOs first, then inspection sections
+        // WO section (reuse wo block below)
+        if(selWOs.length>0){
+          const stats=[{l:"Work Orders",v:selWOs.length,c:"#0F1F38"},{l:"Pending",v:selWOs.filter(w=>w.status==="pending").length,c:"#854F0B"},{l:"Accepted",v:selWOs.filter(w=>w.status==="accepted").length,c:"#185FA5"},{l:"Complete",v:selWOs.filter(w=>w.status==="complete").length,c:"#0F6E56"}];
+          const sw=CW/4;
+          stats.forEach((st,i)=>{
+            const x=ML+i*sw;doc.setFillColor(245,244,240);doc.roundedRect(x,y,sw-4,22,3,3,"F");
+            const[r,g,b]=hexRgb(st.c);doc.setTextColor(r,g,b);
+            doc.setFont("helvetica","bold");doc.setFontSize(16);doc.text(String(st.v),x+(sw-4)/2,y+12,{align:"center"});
+            doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(120,120,120);
+            doc.text(st.l.toUpperCase(),x+(sw-4)/2,y+18,{align:"center"});
+          });y+=34;
+        }
+        drawFooter();
+        // Add WO detail pages
+        selWOs.forEach((wo,idx)=>{
+          newPage();y=18;
+          const pr=properties.find(p=>p.id===wo.property_id);
+          const ct=contractors.find(c=>c.id===wo.contractor_id);
+          doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
+          doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
+          doc.text(`${wo.number}  ·  ${pr?.name||""}`,ML,9);
+          doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(180,200,230);
+          doc.text(`Work Order ${idx+1} of ${selWOs.length}`,PW-MR,9,{align:"right"});
+          y=24;
+          doc.setFont("helvetica","bold");doc.setFontSize(17);doc.setTextColor(15,31,56);
+          const il=doc.splitTextToSize(wo.item,CW);doc.text(il,ML,y);y+=il.length*7+2;
+          doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(100,100,100);
+          doc.text(wo.area,ML,y);y+=9;
+          drawBadge(wo.status,SHEX[wo.status]||"#666",ML,y);
+          drawBadge(wo.priority,PHEX[wo.priority]||"#666",ML+36,y);y+=10;
+          doc.setDrawColor(220,220,215);doc.setLineWidth(0.3);doc.line(ML,y,PW-MR,y);y+=7;
+          doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(15,31,56);doc.text("DESCRIPTION",ML,y);y+=5;
+          doc.setFont("helvetica","normal");doc.setFontSize(10.5);doc.setTextColor(40,40,40);
+          const dl=doc.splitTextToSize(wo.description,CW);doc.text(dl,ML,y);y+=dl.length*5.5+8;
+          const issArr=Array.isArray(wo.photos)?wo.photos:[];
+          renderPhotoBlock(issArr,"ISSUE PHOTOS","#0F1F38");
+          const cmpArr=Array.isArray(wo.completion_photos)?wo.completion_photos:[];
+          if(cmpArr.length>0){if(wo.completion_note){chkY(8);doc.setFont("helvetica","italic");doc.setFontSize(9);doc.setTextColor(60,60,60);doc.text(`Note: ${wo.completion_note}`,ML,y);y+=7;}renderPhotoBlock(cmpArr,"COMPLETION PHOTOS","#1D9E75");}
+          drawFooter();
+        });
+        // Then fall through to inspection section below
+        // (reuse the else block logic)
+        const allInspsC=inspections.filter(i=>i.status==="complete"&&(rptProp==="all"||i.property_id===rptProp));
+        const hasInspSelC=Object.values(rptInspSel).some(Boolean);
+        const inspsC=hasInspSelC?allInspsC.filter(i=>rptInspSel[i.id]):allInspsC;
+        inspsC.forEach((insp,ii)=>{
+          newPage();
+          doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
+          doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
+          const prC=properties.find(p=>p.id===insp.property_id);
+          doc.text(`INSPECTION REPORT  ·  ${prC?.name||""}`,ML,9);
+          y=24;
+          doc.setFont("helvetica","bold");doc.setFontSize(18);doc.setTextColor(15,31,56);
+          doc.text(prC?.name||"",ML,y);y+=10;
+          doc.setFont("helvetica","normal");doc.setFontSize(11);doc.setTextColor(100,100,100);
+          doc.text(`Inspection Date: ${insp.date}`,ML,y);y+=8;
+          drawFooter();
+          clTemplate.forEach(sec=>{
+            const siC=sec.items.map(item=>({item,state:insp.items?.[`${sec.area}::${item}`]||{status:"none",photos:[],comment:""}}))
+              .filter(x=>{if(x.state.status==="none")return false;const ik=`${insp.id}::${sec.area}::${x.item}`;return rptItemSel[ik]!==false;});
+            if(!siC.length)return;
+            newPage();
+            doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
+            doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
+            doc.text(`INSPECTION REPORT  ·  ${prC?.name||""}`,ML,9);
+            doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(180,200,230);
+            doc.text(insp.date,PW-MR,9,{align:"right"});
+            y=28;
+            doc.setFont("helvetica","bold");doc.setFontSize(18);doc.setTextColor(15,31,56);
+            const secLinesC=doc.splitTextToSize(sec.area,CW);doc.text(secLinesC,ML,y);y+=secLinesC.length*8+4;
+            doc.setFillColor(29,158,117);doc.rect(ML,y,CW,2,"F");y+=8;
+            siC.forEach(({item,state})=>{
+              const isSatC=state.status==="sat";const isFlagC=state.status==="flagged";
+              const statusLabelC=isSatC?"Satisfactory":isFlagC?"Work Order":"Unsatisfactory";
+              const statusHexC=isSatC?"#0F6E56":isFlagC?"#854F0B":"#993C1D";
+              const statusBgC=isSatC?"#E1F5EE":isFlagC?"#FAEEDA":"#FAECE7";
+              const ROW_H=22;chkY(ROW_H+4);
+              const[sbr,sbg,sbb]=hexRgb(statusBgC);doc.setFillColor(sbr,sbg,sbb);doc.roundedRect(ML,y,CW,ROW_H,2,2,"F");
+              doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(30,30,30);doc.text(item,ML+CW/2,y+8,{align:"center"});
+              const[str2,stg2,stb2]=hexRgb(statusHexC);doc.setFont("helvetica","bold");doc.setFontSize(8);doc.setTextColor(str2,stg2,stb2);
+              doc.text(statusLabelC.toUpperCase(),ML+CW/2,y+16,{align:"center"});y+=ROW_H+4;
+              if(state.comment&&state.comment.trim()){chkY(12);doc.setFillColor(255,250,245);doc.roundedRect(ML,y,CW,10,2,2,"F");doc.setFont("helvetica","italic");doc.setFontSize(9);doc.setTextColor(80,60,40);const cL=doc.splitTextToSize(`Comment: ${state.comment}`,CW-6);doc.text(cL,ML+3,y+5);y+=Math.max(10,cL.length*5)+4;}
+              const ipC=Array.isArray(state.photos)?state.photos:[];ipC.forEach(src2=>{const needed=90;chkY(needed);const used=addPhoto(src2,CW,85);y+=used+4;});
+              y+=2;
+            });
+            drawFooter();
+          });
+        });
+        doc.save(`${today()}_PropInspect-Combined.pdf`);
+      } else if(rptMode==="wo"){
         // Stats on cover
         const stats=[{l:"Total",v:selWOs.length,c:"#0F1F38"},{l:"Pending",v:selWOs.filter(w=>w.status==="pending").length,c:"#854F0B"},{l:"Accepted",v:selWOs.filter(w=>w.status==="accepted").length,c:"#185FA5"},{l:"Complete",v:selWOs.filter(w=>w.status==="complete").length,c:"#0F6E56"}];
         const sw=CW/4;
@@ -686,8 +867,11 @@ export default function App() {
         drawFooter();
 
       } else {
-        // ── Inspection report ─────────────────────────────────────────────
-        const insps=inspections.filter(i=>rptProp==="all"||i.property_id===rptProp).slice().reverse();
+        // ── Inspection report (also used for combined) ────────────────────
+        // Filter to selected inspections only, or all if none selected
+        const allInsps=inspections.filter(i=>i.status==="complete"&&(rptProp==="all"||i.property_id===rptProp));
+        const hasInspSel=Object.values(rptInspSel).some(Boolean);
+        const insps=hasInspSel?allInsps.filter(i=>rptInspSel[i.id]):allInsps;
         if(insps.length===0){
           doc.setFont("helvetica","normal");doc.setFontSize(12);doc.setTextColor(80,80,80);
           doc.text("No completed inspections found.",ML,120);
@@ -730,8 +914,12 @@ export default function App() {
           clTemplate.forEach(sec=>{
             const si=sec.items.map(item=>({
               item,
-              state:insp.items?.[`${sec.area}::${item}`]||{status:"none",photos:[]}
-            })).filter(x=>x.state.status!=="none");
+              state:insp.items?.[`${sec.area}::${item}`]||{status:"none",photos:[],comment:""}
+            })).filter(x=>{
+              if(x.state.status==="none") return false;
+              const ik=`${insp.id}::${sec.area}::${item}`;
+              return rptItemSel[ik]!==false; // include unless explicitly deselected
+            });
             if(!si.length)return;
 
             // New page for every section
@@ -797,6 +985,17 @@ export default function App() {
 
               y+=ROW_H+4;
 
+              // Comment for unsatisfactory items
+              if(state.comment&&state.comment.trim()){
+                chkY(12);
+                doc.setFillColor(255,250,245);
+                doc.roundedRect(ML,y,CW,10,2,2,"F");
+                doc.setFont("helvetica","italic");doc.setFontSize(9);doc.setTextColor(80,60,40);
+                const cLines=doc.splitTextToSize(`Comment: ${state.comment}`,CW-6);
+                doc.text(cLines,ML+3,y+5);
+                y+=Math.max(10,cLines.length*5)+4;
+              }
+
               // Photos for this item — each full width, correct aspect ratio
               const ip=Array.isArray(state.photos)?state.photos:[];
               ip.forEach(src=>{
@@ -814,14 +1013,53 @@ export default function App() {
         });
       }
 
-      doc.save(`PropInspect-${rptMode==="wo"?"WorkOrders":"Inspection"}-${today()}.pdf`);
+      // Combined mode saves its own file above; wo/inspection save here
+      if(rptMode!=="combined"){
+        const filename = `${today()}_PropInspect-${rptMode==="wo"?"WorkOrders":"Inspection"}.pdf`;
+        doc.save(filename);
+        try {
+          const pdfBlob = doc.output("blob");
+          await supabase.storage.from("photos").upload(`reports/${filename}`, pdfBlob, {contentType:"application/pdf",upsert:true});
+          const url = supabase.storage.from("photos").getPublicUrl(`reports/${filename}`).data.publicUrl;
+          setSavedReports(prev=>[{name:filename,date:today(),url},...prev.filter(r=>r.name!==filename)]);
+        } catch(_){}
+      }
+      // Also upload to Supabase storage for history
+      try {
+        const pdfBlob = doc.output("blob");
+        const path = `reports/${filename}`;
+        await supabase.storage.from("photos").upload(path, pdfBlob, {contentType:"application/pdf", upsert:true});
+        const url = supabase.storage.from("photos").getPublicUrl(path).data.publicUrl;
+        setSavedReports(prev=>[{name:filename,date:today(),url},...prev.filter(r=>r.name!==filename)]);
+      } catch(_){}
     } catch(e){alert("PDF error: "+e.message);}
     setRptGen(false);
   };
 
   const renderHome = () => (
     <div style={S.body}>
-      <div style={S.slabel}>Properties — tap to inspect</div>
+      {showResume&&resumeData&&(()=>{
+        const rProp=properties.find(p=>p.id===resumeData.property_id);
+        return(
+          <div style={{background:"#E6F1FB",border:"1.5px solid #378ADD",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#0F1F38",marginBottom:4}}>Inspection in progress</div>
+            <div style={{fontSize:13,color:"#185FA5",marginBottom:12}}>{rProp?.name} · Started {resumeData.date}</div>
+            <div style={{display:"flex",gap:8}}>
+              <button style={{...S.pbtn("dk"),flex:2,padding:"10px 0",fontSize:13}} onClick={()=>{
+                setDraftKey(resumeData.id);
+                setDraftPropId(resumeData.property_id);
+                startInsp(rProp, resumeData.items);
+              }}>Resume inspection</button>
+              <button style={{...S.pbtn("gh"),flex:1,padding:"10px 0",fontSize:13}} onClick={async()=>{
+                await supabase.from("inspections").delete().eq("id",resumeData.id);
+                setInspections(prev=>prev.filter(i=>i.id!==resumeData.id));
+                setShowResume(false); setResumeData(null);
+              }}>Discard</button>
+            </div>
+          </div>
+        );
+      })()}
+      <div style={S.slabel}>Properties — tap to start new inspection</div>
       {properties.map((pr,i)=>{
         const av=ava(propName(pr),i);
         const pending=workOrders.filter(w=>w.property_id===pr.id&&w.status==="pending").length;
@@ -900,7 +1138,23 @@ export default function App() {
                 </div>
                 {isOpen&&(
                   <div style={{borderTop:"0.5px solid rgba(0,0,0,0.06)"}}>
-                    {sec.items.map((item,ii)=>{
+                    {sec.area==="Miscellaneous"&&(
+                      <div style={{padding:"10px 14px",borderBottom:"0.5px solid rgba(0,0,0,0.05)"}}>
+                        <div style={{fontSize:13,color:"#888",marginBottom:10,lineHeight:1.5}}>Add general photos and comments. Each entry can have its own photo and note.</div>
+                        {(clState[`Miscellaneous::entries`]?.entries||[]).map((entry,ei)=>(
+                          <div key={ei} style={{background:"#F9F9F7",borderRadius:10,padding:"12px",marginBottom:10,border:"0.5px solid rgba(0,0,0,0.08)"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                              <span style={{fontSize:13,fontWeight:600,color:"#111"}}>Entry {ei+1}</span>
+                              <button onClick={()=>{const entries=[...(clState["Miscellaneous::entries"]?.entries||[])];entries.splice(ei,1);setClState(prev=>({...prev,"Miscellaneous::entries":{...prev["Miscellaneous::entries"],entries}}));}} style={{fontSize:11,padding:"2px 8px",borderRadius:20,border:"0.5px solid #F09595",background:"#FCEBEB",color:"#A32D2D",cursor:"pointer",fontFamily:"inherit"}}>Remove</button>
+                            </div>
+                            <textarea style={{...S.ta,minHeight:60,fontSize:13,marginBottom:8}} placeholder="Comment or observation..." value={entry.comment||""} onChange={e=>{const entries=[...(clState["Miscellaneous::entries"]?.entries||[])];entries[ei]={...entries[ei],comment:e.target.value};setClState(prev=>({...prev,"Miscellaneous::entries":{...prev["Miscellaneous::entries"],entries}}));}}/>
+                            <PhotoPicker photos={entry.photos||[]} onChange={photos=>{const entries=[...(clState["Miscellaneous::entries"]?.entries||[])];entries[ei]={...entries[ei],photos};setClState(prev=>({...prev,"Miscellaneous::entries":{...prev["Miscellaneous::entries"],entries}}));}} label={`Photos (${(entry.photos||[]).length})`}/>
+                          </div>
+                        ))}
+                        <button onClick={()=>{const entries=[...(clState["Miscellaneous::entries"]?.entries||[])];entries.push({comment:"",photos:[]});setClState(prev=>({...prev,"Miscellaneous::entries":{...prev["Miscellaneous::entries"],status:"sat",entries}}));}} style={{...S.pbtn("gh"),fontSize:13,padding:"9px 0"}}>+ Add entry</button>
+                      </div>
+                    )}
+                    {sec.area!=="Miscellaneous"&&sec.items.map((item,ii)=>{
                       const k=`${sec.area}::${item}`;
                       const st=clState[k]?.status||"none";
                       const itemPhotos=clState[k]?.photos||[];
@@ -915,6 +1169,12 @@ export default function App() {
                             {isFlagged&&<span style={{fontSize:12,color:"#854F0B",background:"#FAEEDA",padding:"4px 10px",borderRadius:20,marginLeft:"auto",fontWeight:600}}>WO sent</span>}
                           </div>
                           <PhotoPicker photos={itemPhotos} onChange={photos=>setItemPhotos(k,photos)} label={`Photos (${itemPhotos.length})`}/>
+                          {(st==="unsat"||st==="flagged")&&(
+                            <div style={{marginTop:4}}>
+                              <label style={{...S.lbl,marginBottom:4,fontSize:12}}>Comment</label>
+                              <textarea style={{...S.ta,marginBottom:0,minHeight:60,fontSize:13}} placeholder="Describe the issue or observation..." value={clState[k]?.comment||""} onChange={e=>setItemComment(k,e.target.value)}/>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -1295,8 +1555,8 @@ export default function App() {
         <div style={{fontSize:16,fontWeight:700,color:"#0F1F38",marginBottom:10}}>Export Report</div>
         <input style={{...S.inp,marginBottom:12}} placeholder="Report title..." value={rptTitle} onChange={e=>setRptTitle(e.target.value)}/>
         <div style={{display:"flex",gap:8,marginBottom:12}}>
-          {[["wo","Work Orders"],["inspection","Inspection Results"]].map(([v,l])=>(
-            <button key={v} style={{flex:1,padding:"8px 0",borderRadius:10,border:rptMode===v?"1.5px solid #0F1F38":"0.5px solid rgba(0,0,0,0.15)",background:rptMode===v?"#0F1F38":"#fff",color:rptMode===v?"#fff":"#666",fontWeight:rptMode===v?600:400,cursor:"pointer",fontSize:13,fontFamily:"inherit"}} onClick={()=>setRptMode(v)}>{l}</button>
+          {[["wo","Work Orders"],["inspection","Inspection Results"],["combined","Combined"],["history","Report History"]].map(([v,l])=>(
+            <button key={v} style={{flex:1,padding:"7px 0",borderRadius:10,border:rptMode===v?"1.5px solid #0F1F38":"0.5px solid rgba(0,0,0,0.15)",background:rptMode===v?"#0F1F38":"#fff",color:rptMode===v?"#fff":"#666",fontWeight:rptMode===v?600:400,cursor:"pointer",fontSize:11,fontFamily:"inherit"}} onClick={()=>setRptMode(v)}>{l}</button>
           ))}
         </div>
         <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
@@ -1318,32 +1578,96 @@ export default function App() {
         </div>}
       </div>
       <div style={{...S.body,paddingBottom:80}}>
-        {rptMode==="inspection"?(
-          (inspections||[]).length===0?(
-            <div style={{textAlign:"center",color:"#aaa",marginTop:40,fontSize:14}}>No completed inspections yet.<br/>Finish an inspection to generate this report.</div>
-          ):(
-            (inspections||[]).filter(i=>rptProp==="all"||i.property_id===rptProp).slice().reverse().map((insp,idx)=>{
-              const pr=properties.find(p=>p.id===insp.property_id);
-              const all=Object.entries(insp.items||{});
-              const satC=all.filter(([,v])=>v.status==="sat").length;
-              const unsatC=all.filter(([,v])=>v.status==="unsat").length;
-              const flagC=all.filter(([,v])=>v.status==="flagged").length;
-              return(
-                <div key={idx} style={S.card}>
-                  <div style={{padding:"13px 16px"}}>
-                    <div style={{fontSize:15,fontWeight:600,color:"#111",marginBottom:3}}>{pr?.name||"Unknown"}</div>
-                    <div style={{fontSize:12,color:"#888",marginBottom:10}}>Completed {insp.date}</div>
-                    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                      <Bdg bg="#E1F5EE" tx="#0F6E56">{satC} satisfactory</Bdg>
-                      {unsatC>0&&<Bdg bg="#FAECE7" tx="#993C1D">{unsatC} unsatisfactory</Bdg>}
+        {/* Inspection / Combined — selective inspection picker */}
+        {(rptMode==="inspection"||rptMode==="combined")&&(()=>{
+          const filtInsps=inspections.filter(i=>i.status==="complete"&&(rptProp==="all"||i.property_id===rptProp));
+          if(!filtInsps.length) return <div style={{textAlign:"center",color:"#aaa",marginTop:40,fontSize:14}}>No completed inspections yet.</div>;
+          return filtInsps.map(insp=>{
+            const pr=properties.find(p=>p.id===insp.property_id);
+            const allItems=Object.entries(insp.items||{});
+            const satC=allItems.filter(([,v])=>v.status==="sat").length;
+            const unsatC=allItems.filter(([,v])=>v.status==="unsat").length;
+            const flagC=allItems.filter(([,v])=>v.status==="flagged").length;
+            const isSel=!!rptInspSel[insp.id];
+            const isExp=!!rptInspExp[insp.id];
+            return(
+              <div key={insp.id} style={{...S.card,marginBottom:8,border:isSel?"1.5px solid #1D9E75":"0.5px solid rgba(0,0,0,0.08)"}}>
+                <div style={{padding:"12px 14px",display:"flex",gap:10,alignItems:"flex-start",cursor:"pointer"}} onClick={()=>setRptInspSel(p=>({...p,[insp.id]:!p[insp.id]}))}>
+                  <div style={{width:22,height:22,borderRadius:6,flexShrink:0,marginTop:1,background:isSel?"#1D9E75":"#fff",border:isSel?"none":"1.5px solid rgba(0,0,0,0.2)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700}}>{isSel?"✓":""}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:15,fontWeight:600,color:"#111",marginBottom:2}}>{pr?.name||"Unknown"}</div>
+                    <div style={{fontSize:12,color:"#888",marginBottom:8}}>Completed {insp.date}</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      <Bdg bg="#E1F5EE" tx="#0F6E56">{satC} sat</Bdg>
+                      {unsatC>0&&<Bdg bg="#FAECE7" tx="#993C1D">{unsatC} unsat</Bdg>}
                       {flagC>0&&<Bdg bg="#FAEEDA" tx="#854F0B">{flagC} WOs</Bdg>}
                     </div>
                   </div>
+                  <button style={{fontSize:11,padding:"4px 10px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.12)",background:"#F4F2EE",color:"#555",cursor:"pointer",fontFamily:"inherit",flexShrink:0,marginTop:2}} onClick={e=>{e.stopPropagation();setRptInspExp(p=>({...p,[insp.id]:!p[insp.id]}))}}>
+                    {isExp?"▲ Hide":"▼ Items"}
+                  </button>
                 </div>
-              );
-            })
-          )
-        ):(
+                {isExp&&(
+                  <div style={{borderTop:"0.5px solid rgba(0,0,0,0.06)",padding:"10px 14px 14px"}}>
+                    <div style={{fontSize:11,color:"#888",marginBottom:10}}>Select items to include in the report:</div>
+                    {clTemplate.map(sec=>{
+                      const secItems=allItems.filter(([k,v])=>k.startsWith(sec.area+"::")&&v.status!=="none");
+                      if(!secItems.length)return null;
+                      return(
+                        <div key={sec.area} style={{marginBottom:10}}>
+                          <div style={{fontSize:12,fontWeight:700,color:"#0F1F38",marginBottom:5,paddingBottom:3,borderBottom:"0.5px solid rgba(0,0,0,0.06)"}}>{sec.area}</div>
+                          {secItems.map(([k,v])=>{
+                            const ik=`${insp.id}::${k}`;
+                            const itemSel=rptItemSel[ik]!==false;
+                            const isSat=v.status==="sat";
+                            const statusBg=isSat?"#E1F5EE":v.status==="flagged"?"#FAEEDA":"#FAECE7";
+                            const statusTx=isSat?"#0F6E56":v.status==="flagged"?"#854F0B":"#993C1D";
+                            return(
+                              <div key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:"0.5px solid rgba(0,0,0,0.04)",cursor:"pointer"}} onClick={()=>setRptItemSel(p=>({...p,[ik]:!itemSel}))}>
+                                <div style={{width:16,height:16,borderRadius:4,flexShrink:0,background:itemSel?(isSat?"#1D9E75":"#D85A30"):"#fff",border:itemSel?"none":"1.5px solid rgba(0,0,0,0.2)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:10,fontWeight:700}}>{itemSel?"✓":""}</div>
+                                <span style={{fontSize:13,color:"#333",flex:1}}>{k.split("::")[1]}</span>
+                                {v.comment&&<span style={{fontSize:11,color:"#666",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>💬</span>}
+                                <span style={{fontSize:11,padding:"2px 6px",borderRadius:12,background:statusBg,color:statusTx,fontWeight:600,flexShrink:0}}>{isSat?"SAT":v.status==="flagged"?"WO":"UNSAT"}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                    <div style={{display:"flex",gap:8,marginTop:10}}>
+                      <button style={{fontSize:12,padding:"4px 10px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.12)",background:"#0F1F38",color:"#fff",cursor:"pointer",fontFamily:"inherit"}} onClick={()=>{const u={};allItems.filter(([,v])=>v.status!=="none").forEach(([k])=>u[`${insp.id}::${k}`]=true);setRptItemSel(p=>({...p,...u}));}}>All</button>
+                      <button style={{fontSize:12,padding:"4px 10px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.12)",background:"#fff",color:"#555",cursor:"pointer",fontFamily:"inherit"}} onClick={()=>{const u={};allItems.forEach(([k])=>u[`${insp.id}::${k}`]=false);setRptItemSel(p=>({...p,...u}));}}>None</button>
+                      <button style={{fontSize:12,padding:"4px 10px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.12)",background:"#FAECE7",color:"#993C1D",cursor:"pointer",fontFamily:"inherit"}} onClick={()=>{const u={};allItems.filter(([,v])=>v.status==="unsat").forEach(([k])=>u[`${insp.id}::${k}`]=true);allItems.filter(([,v])=>v.status==="sat").forEach(([k])=>u[`${insp.id}::${k}`]=false);setRptItemSel(p=>({...p,...u}));}}>Unsat only</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          });
+        })()}
+
+        {/* Report history */}
+        {rptMode==="history"&&(
+          <div>
+            <div style={{fontSize:13,color:"#888",marginBottom:12,lineHeight:1.5}}>All generated reports are stored here, sorted by date. Tap to download.</div>
+            {savedReports.length===0&&<div style={{textAlign:"center",color:"#aaa",marginTop:40,fontSize:14}}>No reports generated yet.</div>}
+            {savedReports.map((r,i)=>(
+              <div key={i} style={{...S.card,marginBottom:8}}>
+                <div style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{fontSize:24}}>📄</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:14,fontWeight:600,color:"#111"}}>{r.name.replace(/_/g," ").replace(".pdf","")}</div>
+                    <div style={{fontSize:12,color:"#888",marginTop:2}}>{r.date}</div>
+                  </div>
+                  <a href={r.url} target="_blank" rel="noopener noreferrer" style={{fontSize:13,padding:"6px 14px",borderRadius:20,border:"none",background:"#0F1F38",color:"#fff",textDecoration:"none",fontFamily:"inherit",fontWeight:600}}>↓ Open</a>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Work orders selector */}
+        {rptMode==="wo"&&(
           <>
             {rptWOs.length===0&&<div style={{textAlign:"center",color:"#aaa",marginTop:40,fontSize:14}}>No work orders match.</div>}
             {rptWOs.map(wo=>{
@@ -1357,7 +1681,7 @@ export default function App() {
                       <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:13,fontWeight:700,color:"#111"}}>{wo.number}</span><div style={{display:"flex",gap:4}}><Bdg bg={pc.bg} tx={pc.tx}>{wo.priority}</Bdg><Bdg bg={sc.bg} tx={sc.tx}>{wo.status}</Bdg></div></div>
                       <div style={{fontSize:14,fontWeight:600,color:"#111",marginBottom:2}}>{wo.item}</div>
                       <div style={{fontSize:12,color:"#666",marginBottom:4,lineHeight:1.4}}>{wo.description.slice(0,80)}{wo.description.length>80?"…":""}</div>
-                      <div style={{fontSize:11,color:"#aaa"}}>{p?.name} · {c?.name} · {(Array.isArray(wo.photos)?wo.photos.length:0)} photos · {wo.created_at}</div>
+                      <div style={{fontSize:11,color:"#aaa"}}>{p?.name} · {c?.name} · {(Array.isArray(wo.photos)?wo.photos.length:0)} photos · {wo.created_at?.slice(0,10)}</div>
                     </div>
                   </div>
                 </div>
@@ -1365,11 +1689,48 @@ export default function App() {
             })}
           </>
         )}
+        {rptMode==="combined"&&(
+          <>
+            {rptWOs.length===0&&<div style={{fontSize:13,color:"#888",marginTop:16,marginBottom:8}}>No work orders match current filters.</div>}
+            {rptWOs.length>0&&<>
+              <div style={{...S.slabel,marginTop:8}}>Work Orders</div>
+              <div style={{display:"flex",gap:8,marginBottom:12}}>
+                <button style={{fontSize:12,padding:"5px 12px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.15)",background:"#0F1F38",color:"#fff",cursor:"pointer",fontFamily:"inherit",fontWeight:600}} onClick={selAll}>Select all WOs</button>
+                <button style={{fontSize:12,padding:"5px 12px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.15)",background:"#fff",color:"#555",cursor:"pointer",fontFamily:"inherit"}} onClick={()=>setRptSel({})}>Clear</button>
+                <span style={{fontSize:12,color:"#888",alignSelf:"center"}}>{selWOs.length} selected</span>
+              </div>
+              {rptWOs.map(wo=>{
+                const sel=!!rptSel[wo.id];const p=properties.find(x=>x.id===wo.property_id);
+                const sc=STA[wo.status]||STA.pending;const pc=PRI[wo.priority]||PRI.Medium;
+                return(
+                  <div key={wo.id} style={{...S.card,marginBottom:6,border:sel?"1.5px solid #1D9E75":"0.5px solid rgba(0,0,0,0.08)",cursor:"pointer"}} onClick={()=>toggleRpt(wo.id)}>
+                    <div style={{padding:"10px 14px",display:"flex",gap:10,alignItems:"center"}}>
+                      <div style={{width:20,height:20,borderRadius:5,flexShrink:0,background:sel?"#1D9E75":"#fff",border:sel?"none":"1.5px solid rgba(0,0,0,0.2)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:700}}>{sel?"✓":""}</div>
+                      <div style={{flex:1}}>
+                        <span style={{fontSize:13,fontWeight:700,color:"#111"}}>{wo.number}</span>
+                        <span style={{fontSize:13,color:"#555",marginLeft:8}}>{wo.item}</span>
+                      </div>
+                      <div style={{display:"flex",gap:4}}><Bdg bg={pc.bg} tx={pc.tx}>{wo.priority}</Bdg><Bdg bg={sc.bg} tx={sc.tx}>{wo.status}</Bdg></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </>}
+          </>
+        )}
       </div>
       <div style={{...S.bbar,position:"sticky",bottom:0}}>
-        <button style={{...S.pbtn(((rptMode==="wo"&&selWOs.length>0)||rptMode==="inspection")?"gn":"gh"),opacity:((rptMode==="wo"&&selWOs.length>0)||rptMode==="inspection")?1:0.5}} onClick={genPDF} disabled={rptGen||(rptMode==="wo"&&selWOs.length===0)}>
-          {rptGen?"Generating PDF…":rptMode==="wo"?`Download PDF (${selWOs.length} WO${selWOs.length!==1?"s":""})`:"Download Inspection Report"}
-        </button>
+        {rptMode!=="history"&&<button
+          style={{...S.pbtn(
+            (rptMode==="wo"&&selWOs.length>0)||(rptMode==="inspection"&&Object.values(rptInspSel).some(Boolean))||(rptMode==="combined"&&(selWOs.length>0||Object.values(rptInspSel).some(Boolean)))?
+            "gn":"gh"
+          ), opacity:rptMode==="history"?0:1}}
+          onClick={genPDF} disabled={rptGen}>
+          {rptGen?"Generating PDF…":
+           rptMode==="wo"?`Download PDF (${selWOs.length} WO${selWOs.length!==1?"s":""})`:
+           rptMode==="combined"?"Download Combined Report":
+           "Download Inspection Report"}
+        </button>}
       </div>
     </>
   );
