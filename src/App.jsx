@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPA_URL = "https://efhbnddgcazzkbppzdqw.supabase.co";
@@ -115,6 +115,22 @@ function PhotoPicker({photos=[],onChange,label="Photos"}) {
   );
 }
 
+
+// ── Error boundary — shows a message instead of blank page on crash ──────────
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e) { return { error: e }; }
+  render() {
+    if (this.state.error) return (
+      <div style={{maxWidth:390,margin:"2rem auto",padding:24,fontFamily:"system-ui",background:"#fff",borderRadius:14,border:"1px solid #F09595"}}>
+        <div style={{fontSize:18,fontWeight:700,color:"#A32D2D",marginBottom:8}}>Something went wrong</div>
+        <div style={{fontSize:13,color:"#555",marginBottom:16,lineHeight:1.6}}>{this.state.error.message}</div>
+        <button onClick={()=>window.location.reload()} style={{padding:"10px 20px",background:"#0F1F38",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:14}}>Reload app</button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
 
 function LoginScreen() {
   const [mode, setMode]         = useState("login");
@@ -235,19 +251,6 @@ export default function App() {
   const [savedReports,setSavedReports] = useState([]);
 
   // Load saved report history from Supabase storage listing
-  useEffect(() => {
-    if (!session) return;
-    (async () => {
-      const { data } = await supabase.storage.from("photos").list("reports/", {limit:100, sortBy:{column:"created_at",order:"desc"}});
-      if (data) setSavedReports(data.map(f => ({
-        name: f.name,
-        date: f.name.split("_")[0] || f.name.slice(0,10),
-        url:  supabase.storage.from("photos").getPublicUrl(`reports/${f.name}`).data.publicUrl,
-      })));
-    })();
-  }, [session]);
-
-
   // ── Auth listener ──────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data:{session} }) => {
@@ -330,6 +333,21 @@ export default function App() {
   };
 
   const signOut = () => supabase.auth.signOut();
+
+  // ── Load saved report history ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!session) return;
+    (async () => {
+      try {
+        const { data } = await supabase.storage.from("photos").list("reports/", {limit:100, sortBy:{column:"created_at",order:"desc"}});
+        if (data) setSavedReports(data.map(f => ({
+          name: f.name,
+          date: f.name.split("_")[0] || f.name.slice(0,10),
+          url:  supabase.storage.from("photos").getPublicUrl(`reports/${f.name}`).data.publicUrl,
+        })));
+      } catch(_) {}
+    })();
+  }, [session]);
 
   // ── Field normalizers (DB snake_case ↔ JS camelCase) ──────────────────────
   const propName  = p => p?.name || "";
@@ -1777,7 +1795,7 @@ export default function App() {
   if (!dataLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"system-ui",color:"#888"}}>Loading your data...</div>;
 
   return(
-    <>
+    <ErrorBoundary>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
       <div style={S.app}>
         <div style={S.sbar}>
@@ -1808,6 +1826,6 @@ export default function App() {
         {tab==="checklist"   &&renderTemplate()}
         {tab==="report"      &&renderReport()}
       </div>
-    </>
+    </ErrorBoundary>
   );
 }
