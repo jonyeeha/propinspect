@@ -470,33 +470,65 @@ export default function App() {
             // New page for every section
             newPage();
 
-            // Section header bar — full width
+            // ── Consistent navy header — same on every page ──────────────
             doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
             doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
-            doc.text(sec.area,ML,9);
+            doc.text(`INSPECTION REPORT  ·  ${pr?.name||""}`,ML,9);
             doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(180,200,230);
-            doc.text(`${pr?.name||""} · ${insp.date}`,PW-MR,9,{align:"right"});
-            y=20;
+            doc.text(insp.date,PW-MR,9,{align:"right"});
+
+            // ── Category name — same large style as property name on cover ─
+            y=28;
+            doc.setFont("helvetica","bold");doc.setFontSize(18);doc.setTextColor(15,31,56);
+            const secLines=doc.splitTextToSize(sec.area,CW);
+            doc.text(secLines,ML,y);
+            y+=secLines.length*8+4;
+
+            // Teal underline accent
+            doc.setFillColor(29,158,117);doc.rect(ML,y,CW,2,"F");
+            y+=8;
 
             si.forEach(({item,state})=>{
               const isSat=state.status==="sat";
               const isFlag=state.status==="flagged";
-              const statusLabel=isSat?"SATISFACTORY":isFlag?"WORK ORDER":"UNSATISFACTORY";
+              const statusLabel=isSat?"Satisfactory":isFlag?"Work Order":"Unsatisfactory";
               const statusHex=isSat?"#0F6E56":isFlag?"#854F0B":"#993C1D";
               const statusBg=isSat?"#E1F5EE":isFlag?"#FAEEDA":"#FAECE7";
+              const statusBorder=isSat?"#9FE1CB":isFlag?"#FAC775":"#F5C4B3";
 
-              chkY(14);
+              const ROW_H=22;
+              chkY(ROW_H+4);
 
-              // Item row with colored status badge
+              // Full-width colored background block
               const[sbr,sbg,sbb]=hexRgb(statusBg);
               doc.setFillColor(sbr,sbg,sbb);
-              doc.roundedRect(ML,y-3,CW,10,2,2,"F");
-              doc.setFont("helvetica","bold");doc.setFontSize(10);doc.setTextColor(30,30,30);
-              doc.text(item,ML+4,y+4);
+              doc.roundedRect(ML,y,CW,ROW_H,2,2,"F");
+
+              // Subtle border
+              const[bdr,bdg,bdb]=hexRgb(statusBorder);
+              doc.setDrawColor(bdr,bdg,bdb);
+              doc.setLineWidth(0.3);
+              doc.roundedRect(ML,y,CW,ROW_H,2,2,"S");
+
+              // Item name — centered horizontally in upper half of block
+              doc.setFont("helvetica","bold");
+              doc.setFontSize(10);
+              doc.setTextColor(30,30,30);
+              let displayItem=item;
+              while(doc.getTextWidth(displayItem)>CW-8&&displayItem.length>4){
+                displayItem=displayItem.slice(0,-1);
+              }
+              if(displayItem!==item)displayItem=displayItem.slice(0,-1)+"\u2026";
+              doc.text(displayItem,ML+CW/2,y+8,{align:"center"});
+
+              // Status label — centered in lower half, colored text
               const[str,stg,stb]=hexRgb(statusHex);
-              doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(str,stg,stb);
-              doc.text(statusLabel,PW-MR,y+4,{align:"right"});
-              y+=12;
+              doc.setFont("helvetica","bold");
+              doc.setFontSize(8);
+              doc.setTextColor(str,stg,stb);
+              doc.text(statusLabel.toUpperCase(),ML+CW/2,y+16,{align:"center"});
+
+              y+=ROW_H+4;
 
               // Photos for this item — each full width, correct aspect ratio
               const ip=Array.isArray(state.photos)?state.photos:[];
@@ -507,7 +539,7 @@ export default function App() {
                 y+=used+4;
               });
 
-              y+=2; // spacing between items
+              y+=2;
             });
 
             drawFooter();
