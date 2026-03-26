@@ -283,53 +283,88 @@ export default function App() {
 
   const loadAll = async () => {
     const uid = session.user.id;
-    const [prof, props, conts, tpl, wos, insps] = await Promise.all([
-      supabase.from("profiles").select("*").eq("id", uid).single(),
-      supabase.from("properties").select("*").eq("user_id", uid).order("sort_order"),
-      supabase.from("contractors").select("*").eq("user_id", uid).order("created_at"),
-      supabase.from("checklist_template").select("*").eq("user_id", uid).order("sort_order"),
-      supabase.from("work_orders").select("*").eq("user_id", uid).order("created_at", {ascending:false}),
-      supabase.from("inspections").select("*").eq("user_id", uid).order("created_at", {ascending:false}),
-    ]);
-    if (prof.data) {
-      setProfile(prof.data);
-      const em = prof.data.manager_email || prof.data.email || "";
-      setMgrEmail(em); setEditMgrVal(em);
+    try {
+      // Load each table separately so one failure doesn't block the rest
+      const [prof, props, conts, tpl, wos, insps] = await Promise.all([
+        supabase.from("profiles").select("*").eq("id", uid).single(),
+        supabase.from("properties").select("*").eq("user_id", uid).order("sort_order"),
+        supabase.from("contractors").select("*").eq("user_id", uid).order("created_at"),
+        supabase.from("checklist_template").select("*").eq("user_id", uid).order("sort_order"),
+        supabase.from("work_orders").select("*").eq("user_id", uid).order("created_at", {ascending:false}),
+        supabase.from("inspections").select("*").eq("user_id", uid).order("created_at", {ascending:false}),
+      ]);
+
+      // Log any query errors so we can see them
+      if (prof.error)  console.error("profiles error:",           prof.error);
+      if (props.error) console.error("properties error:",         props.error);
+      if (conts.error) console.error("contractors error:",        conts.error);
+      if (tpl.error)   console.error("checklist_template error:", tpl.error);
+      if (wos.error)   console.error("work_orders error:",        wos.error);
+      if (insps.error) console.error("inspections error:",        insps.error);
+
+      // Profile
+      if (prof.data) {
+        setProfile(prof.data);
+        const em = prof.data.manager_email || prof.data.email || "";
+        setMgrEmail(em); setEditMgrVal(em);
+      }
+
+      // Properties — seed defaults on first login
+      if (!props.error && !props.data?.length) {
+        const { data:ins, error:propErr } = await supabase.from("properties")
+          .insert(DEFAULT_PROPERTIES.map((x,i)=>({
+            user_id:uid, sort_order:i,
+            name:x.name, address:"",
+            vacant_units:"", type:"Commercial",
+            inspection_freq:"Monthly",
+          }))).select();
+        if (propErr) console.error("Seed properties error:", propErr);
+        setProperties(ins||[]);
+      } else {
+        setProperties(props.data||[]);
+      }
+
+      // Contractors — seed defaults on first login
+      if (!conts.error && !conts.data?.length) {
+        const { data:ins, error:contErr } = await supabase.from("contractors")
+          .insert(DEFAULT_CONTRACTORS.map(x=>({
+            user_id:uid, name:x.name, trade:x.trade||"",
+            email:"", phone:"", license:"", avg_response:"",
+          }))).select();
+        if (contErr) console.error("Seed contractors error:", contErr);
+        setContractors(ins||[]);
+      } else {
+        setContractors(conts.data||[]);
+      }
+
+      // Checklist template — seed defaults on first login
+      if (!tpl.error && !tpl.data?.length) {
+        const { data:ins, error:tplErr } = await supabase.from("checklist_template")
+          .insert(CHECKLIST_TEMPLATE.map((x,i)=>({
+            area:x.area, items:x.items, user_id:uid, sort_order:i,
+          }))).select();
+        if (tplErr) console.error("Seed template error:", tplErr);
+        setClTemplate(ins||[]);
+      } else {
+        setClTemplate(tpl.data||[]);
+      }
+
+      // Work orders
+      setWorkOrders(wos.data||[]);
+      if (wos.data?.length) {
+        const nums = wos.data.map(w=>parseInt((w.number||"").replace("WO-",""))).filter(n=>!isNaN(n));
+        if (nums.length) setNextWONum(Math.max(...nums)+1);
+      }
+
+      // Inspections — handle missing status column gracefully
+      setInspections(insps.data||[]);
+
+    } catch(err) {
+      console.error("loadAll crashed:", err);
+      // Still mark as loaded so the app renders — data will be empty but usable
+    } finally {
+      setDataLoaded(true);
     }
-    // Seed defaults on first login
-    if (!props.data?.length) {
-      const { data:ins, error:propErr } = await supabase.from("properties")
-        .insert(DEFAULT_PROPERTIES.map((x,i)=>({
-          user_id:uid, sort_order:i,
-          name:x.name, address:x.address||"",
-          vacant_units:"", type:x.type||"Commercial",
-          inspection_freq:x.inspectionFreq||"Monthly",
-        }))).select();
-      if (propErr) console.error("Seed properties error:", propErr);
-      setProperties(ins||[]);
-    } else setProperties(props.data);
-    if (!conts.data?.length) {
-      const { data:ins, error:contErr } = await supabase.from("contractors")
-        .insert(DEFAULT_CONTRACTORS.map(x=>({
-          user_id:uid,
-          name:x.name, trade:x.trade||"",
-          email:"", phone:"", license:"", avg_response:"",
-        }))).select();
-      if (contErr) console.error("Seed contractors error:", contErr);
-      setContractors(ins||[]);
-    } else setContractors(conts.data);
-    if (!tpl.data?.length) {
-      const { data:ins } = await supabase.from("checklist_template")
-        .insert(CHECKLIST_TEMPLATE.map((x,i)=>({area:x.area,items:x.items,user_id:uid,sort_order:i}))).select();
-      setClTemplate(ins||[]);
-    } else setClTemplate(tpl.data);
-    setWorkOrders(wos.data||[]);
-    setInspections(insps.data||[]);
-    if (wos.data?.length) {
-      const nums = wos.data.map(w=>parseInt((w.number||"").replace("WO-",""))).filter(n=>!isNaN(n));
-      if (nums.length) setNextWONum(Math.max(...nums)+1);
-    }
-    setDataLoaded(true);
   };
 
   const signOut = () => supabase.auth.signOut();
@@ -1792,7 +1827,15 @@ export default function App() {
   const inFlow=tab==="inspect"&&scr!=="home";
   if (!authReady) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"system-ui",color:"#888"}}>Loading...</div>;
   if (!session)   return <LoginScreen />;
-  if (!dataLoaded) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"system-ui",color:"#888"}}>Loading your data...</div>;
+  if (!dataLoaded) return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"'DM Sans',system-ui",color:"#888",gap:16,padding:24}}>
+      <div style={{fontSize:32}}>🏢</div>
+      <div style={{fontSize:16,fontWeight:600,color:"#0F1F38"}}>Loading your data...</div>
+      <div style={{fontSize:13,color:"#aaa",textAlign:"center",maxWidth:280,lineHeight:1.6}}>Connecting to Supabase. If this takes more than 10 seconds, check your browser console (F12) for errors.</div>
+      <button onClick={()=>window.location.reload()} style={{marginTop:8,padding:"10px 24px",background:"#0F1F38",color:"#fff",border:"none",borderRadius:10,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Retry</button>
+      <button onClick={signOut} style={{padding:"8px 20px",background:"transparent",color:"#aaa",border:"0.5px solid #ddd",borderRadius:10,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Sign out and try again</button>
+    </div>
+  );
 
   return(
     <ErrorBoundary>
