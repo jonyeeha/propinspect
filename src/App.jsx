@@ -896,7 +896,17 @@ export default function App() {
       let pageNum=1;
 
       // ── Helpers ──────────────────────────────────────────────────────────
-      const newPage=()=>{doc.addPage();y=0;pageNum++;};
+      const newPage=()=>{
+        doc.addPage();
+        pageNum++;
+        // Draw consistent header on every new page for inspection reports
+        if(rptMode==="inspection"||rptMode==="combined"){
+          // Header drawn per-inspection-section below, just reset y
+          y=0;
+        } else {
+          y=0;
+        }
+      };
       const chkY=n=>{if(y+n>BODY_BOTTOM)newPage();};
 
       const drawFooter=()=>{
@@ -957,7 +967,6 @@ export default function App() {
 
       // ── Cover page ────────────────────────────────────────────────────────
       doc.setFillColor(15,31,56);doc.rect(0,0,PW,80,"F");
-      doc.setFillColor(29,158,117);doc.rect(0,80,PW,4,"F");
       // Vestar logo — top right of header, white background pill, correct aspect ratio
       try {
         const logoW=38, logoH=38; // square logo, fits neatly
@@ -1196,7 +1205,7 @@ export default function App() {
           const pr=properties.find(p=>p.id===insp.property_id);
           const prName=pr?.name||"";
 
-          // ── Cover page ────────────────────────────────────────────────────
+          // ── Inspection cover page ─────────────────────────────────────────
           newPage();
           // Navy header bar — no green band
           doc.setFillColor(15,31,56);doc.rect(0,0,PW,18,"F");
@@ -1204,37 +1213,42 @@ export default function App() {
           doc.text("PROPERTY INSPECTION",ML,11);
           doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(180,200,230);
           doc.text(insp.date,PW-MR,11,{align:"right"});
-          y=26;
-          // Vestar logo — cover page only
-          try{doc.addImage(VESTAR_LOGO,"JPEG",ML,y,28,28);}catch(_){}
-          // "Property Inspection" heading
+
+          // Vestar logo — cover page only, left aligned
+          const logoY2=24;
+          try{doc.addImage(VESTAR_LOGO,"JPEG",ML,logoY2,26,26);}catch(_){}
+
+          // "Property Inspection" heading — right of logo
           doc.setFont("helvetica","bold");doc.setFontSize(22);doc.setTextColor(15,31,56);
-          doc.text("Property Inspection",ML+34,y+10);
-          // Property name below heading
+          doc.text("Property Inspection",ML+32,logoY2+10);
+          // Property name on next line, right of logo
           doc.setFont("helvetica","normal");doc.setFontSize(13);doc.setTextColor(60,60,60);
-          doc.text(prName,ML+34,y+20);
-          y+=36;
-          // Date line
+          doc.text(prName,ML+32,logoY2+20);
+
+          // Date — below logo block, clear of logo
+          y=logoY2+34;
           doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(100,100,100);
           const longDate=new Date().toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
-          doc.text(longDate,ML,y);y+=10;
+          doc.text(longDate,ML,y);y+=12;
+
           // Red divider rule
           doc.setDrawColor(160,0,0);doc.setLineWidth(0.8);doc.line(ML,y,PW-MR,y);y+=10;
-          // Summary — no "Issues Identified", no "Issues Completed" line
+
+          // Summary counts — on separate lines, clear spacing
           const allItems=Object.entries(insp.items||{});
           const satC=allItems.filter(([,v])=>v.status==="sat").length;
           const unsatC=allItems.filter(([,v])=>v.status==="unsat").length;
           const flagC=allItems.filter(([,v])=>v.status==="flagged").length;
           const ratedC=satC+unsatC+flagC;
           doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(100,100,100);
-          doc.text(`${satC} Satisfactory  ·  ${unsatC} Unsatisfactory  ·  ${flagC} Work Orders`,ML,y);y+=6;
-          doc.text(`${ratedC} of ${allItems.length} items rated`,ML,y);
+          doc.text(`${satC} Satisfactory  ·  ${unsatC} Unsatisfactory  ·  ${flagC} Work Orders`,ML,y);y+=7;
+          doc.text(`${ratedC} of ${allItems.length} items rated`,ML,y);y+=16;
+
           drawFooter();
 
-          // ── Issue pages — reference PDF style ────────────────────────────
-          // Bold ALL-CAPS title + red rule + "Issue Completed" + comment + numbered 3-up grid
-          // Use CHECKLIST_TEMPLATE (hardcoded correct order) for PDF iteration
-          // This prevents DB sort_order mismatches causing wrong item ordering
+          // ── Issue pages — always start on a new page after the cover ─────
+          // Use CHECKLIST_TEMPLATE (hardcoded correct order) for correct section ordering
+          let isFirstSection = true;
           CHECKLIST_TEMPLATE.forEach(sec=>{
             const si=sec.items.map(item=>({
               item,
@@ -1246,10 +1260,18 @@ export default function App() {
             });
             if(!si.length)return;
 
+            // Each section always starts on a fresh page with a header
+            newPage();
+            doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
+            doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
+            doc.text(`PROPERTY INSPECTION  ·  ${prName}`,ML,9);
+            doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(180,200,230);
+            doc.text(insp.date,PW-MR,9,{align:"right"});
+            y=22;
+
             si.forEach(({item,state})=>{
               const isSat=state.status==="sat";
               const isFlag=state.status==="flagged";
-              const completedLabel=isSat||isFlag?"Yes":"No";
               const ip=Array.isArray(state.photos)?state.photos:[];
               const commentLines=state.comment&&state.comment.trim()?doc.splitTextToSize(state.comment,CW):[];
               const gridPW=(CW-8)/3; const gridPH=gridPW*0.75;
@@ -1257,14 +1279,14 @@ export default function App() {
               const neededH=28+commentLines.length*5+(photoRows>0?photoRows*(gridPH+8):0)+10;
               chkY(neededH);
 
-              // Re-draw page header if new page started
+              // Re-draw page header if chkY triggered a new page
               if(y<=2){
                 doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
                 doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
-                doc.text(`INSPECTION REPORT  ·  ${prName}`,ML,9);
+                doc.text(`PROPERTY INSPECTION  ·  ${prName}`,ML,9);
                 doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(180,200,230);
                 doc.text(insp.date,PW-MR,9,{align:"right"});
-                y=18;
+                y=22;
               }
 
               // Bold ALL-CAPS issue title
@@ -1303,10 +1325,10 @@ export default function App() {
                     if(y<=2){
                       doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
                       doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
-                      doc.text(`INSPECTION REPORT  ·  ${prName}`,ML,9);
+                      doc.text(`PROPERTY INSPECTION  ·  ${prName}`,ML,9);
                       doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(180,200,230);
                       doc.text(insp.date,PW-MR,9,{align:"right"});
-                      rowY=18;
+                      rowY=22;
                     }
                   }
                   const col=pi%cols;
@@ -1359,12 +1381,25 @@ export default function App() {
         <div style={{background:"#0F1F38",borderRadius:14,padding:"14px 16px",marginBottom:16,border:"1.5px solid #1D9E75"}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
             <div style={{width:10,height:10,borderRadius:"50%",background:"#1D9E75",flexShrink:0,boxShadow:"0 0 0 3px rgba(29,158,117,0.3)"}}/>
-            <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>Inspection in progress</div>
+            <div style={{fontSize:14,fontWeight:700,color:"#fff",flex:1}}>Inspection in progress</div>
           </div>
           <div style={{fontSize:13,color:"rgba(180,200,230,0.9)",marginBottom:12}}>{propName(prop)} · Auto-saving as you go</div>
-          <button style={{...S.pbtn("gn"),padding:"10px 0",fontSize:14,fontWeight:700}} onClick={()=>setScr("checklist")}>
-            Continue inspection →
-          </button>
+          <div style={{display:"flex",gap:8}}>
+            <button style={{...S.pbtn("gn"),flex:2,padding:"10px 0",fontSize:14,fontWeight:700}} onClick={()=>setScr("checklist")}>
+              Continue →
+            </button>
+            <button style={{flex:1,padding:"10px 0",fontSize:13,fontWeight:600,borderRadius:10,border:"0.5px solid rgba(255,255,255,0.2)",background:"transparent",color:"rgba(255,100,100,0.9)",cursor:"pointer",fontFamily:"inherit"}}
+              onClick={async()=>{
+                if(!window.confirm("Discard this inspection? All progress will be lost.")) return;
+                if(saveTimerRef.current) clearTimeout(saveTimerRef.current);
+                const dk=draftKeyRef.current;
+                if(dk){ await supabase.from("inspections").delete().eq("id",dk); setInspections(prev=>prev.filter(i=>i.id!==dk)); }
+                draftKeyRef.current=null; setDraftKey(null); setDraftPropId(null);
+                propIdRef.current=null; setClState({}); setProp(null);
+              }}>
+              Discard
+            </button>
+          </div>
         </div>
       )}
 
@@ -1452,6 +1487,28 @@ export default function App() {
           );
         })}
       </>}
+      {/* ── Rotating funny business quote ── */}
+      {(()=>{
+        const QUOTES=[
+          {q:""A property inspection is just a polite way of saying 'I've noticed things.'"",a:"— Anonymous PM"},
+          {q:""The parking lot doesn't stripe itself."",a:"— Vestar wisdom"},
+          {q:""Behind every great property is someone who actually walked it."",a:"— Field notes"},
+          {q:""Details are not the details. They make the design."",a:"— Charles Eames"},
+          {q:""Cleanliness is not next to godliness. It's next to 'lease renewed.'"",a:"— Property Management proverb"},
+          {q:""If it's worth owning, it's worth inspecting."",a:"— Common sense"},
+          {q:""A work order ignored is a lawsuit invited."",a:"— Every PM ever"},
+          {q:""The best time to fix a pothole was last quarter. The second best time is today."",a:"— Field operations"},
+          {q:""You can't manage what you don't walk."",a:"— Management 101"},
+          {q:""Tenants notice everything. So should you."",a:"— Site management"},
+        ];
+        const q=QUOTES[new Date().getDay()%QUOTES.length];
+        return(
+          <div style={{margin:"20px 0 8px",padding:"14px 16px",background:"#fff",borderRadius:14,border:"0.5px solid rgba(0,0,0,0.07)"}}>
+            <div style={{fontSize:13,color:"#444",lineHeight:1.6,fontStyle:"italic",marginBottom:4}}>{q.q}</div>
+            <div style={{fontSize:11,color:"#aaa",fontWeight:600}}>{q.a}</div>
+          </div>
+        );
+      })()}
       <div style={{padding:"12px 0 4px",textAlign:"right"}}>
         <button onClick={signOut} style={{fontSize:12,padding:"5px 12px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.15)",background:"#fff",color:"#888",cursor:"pointer",fontFamily:"inherit"}}>Sign out</button>
       </div>
