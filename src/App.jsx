@@ -139,6 +139,7 @@ function LoginScreen() {
   const [name, setName]         = useState("");
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState("");
+  const [resetSent, setResetSent] = useState(false);
 
   const submit = async () => {
     setLoading(true); setError("");
@@ -155,37 +156,111 @@ function LoginScreen() {
     setLoading(false);
   };
 
-  const inp = { width:"100%", padding:"12px 14px", border:"0.5px solid rgba(0,0,0,0.15)", borderRadius:10, background:"#fff", color:"#111", fontSize:15, marginBottom:14, outline:"none", fontFamily:"inherit", boxSizing:"border-box" };
+  const inp = {
+    width:"100%", padding:"14px 16px",
+    border:"1.5px solid rgba(255,255,255,0.15)",
+    borderRadius:12, background:"rgba(255,255,255,0.08)",
+    color:"#fff", fontSize:15, marginBottom:14,
+    outline:"none", fontFamily:"inherit", boxSizing:"border-box",
+    WebkitAppearance:"none",
+  };
+
+  const messages = {
+    login:  ["Good to see you.", "Welcome back.", "Let's get to work.", "Ready when you are."],
+    signup: ["Let's get you set up.", "Welcome aboard.", "Great properties start here."],
+  };
+  // Pick a consistent message based on day of week
+  const tagline = messages[mode][new Date().getDay() % messages[mode].length];
 
   return (
-    <div style={{ maxWidth:390, margin:"0 auto", fontFamily:"'DM Sans',system-ui,sans-serif", minHeight:"100vh", background:"#F4F2EE", display:"flex", flexDirection:"column" }}>
+    <div style={{ maxWidth:390, margin:"0 auto", fontFamily:"'DM Sans',system-ui,sans-serif", minHeight:"100vh", background:"#0F1F38", display:"flex", flexDirection:"column" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
-      <div style={{ background:"#0F1F38", padding:"48px 24px 40px" }}>
-        <div style={{ fontSize:12, fontWeight:600, color:"rgba(180,200,230,0.7)", letterSpacing:"0.1em", marginBottom:14 }}>PROPINSPECT</div>
-        <div style={{ fontSize:28, fontWeight:700, color:"#fff", lineHeight:1.2 }}>{mode==="login"?"Welcome back":"Create account"}</div>
-        <div style={{ fontSize:13, color:"rgba(180,200,230,0.8)", marginTop:8 }}>{mode==="login"?"Sign in to manage your properties":"Get started with PropInspect"}</div>
-      </div>
-      <div style={{ flex:1, padding:"28px 24px 0" }}>
-        {error && <div style={{ background:"#FCEBEB", border:"0.5px solid #F09595", borderRadius:10, padding:"10px 14px", marginBottom:16, fontSize:13, color:"#A32D2D" }}>{error}</div>}
-        {mode==="signup" && <input style={inp} type="text" placeholder="Full name" value={name} onChange={e=>setName(e.target.value)}/>}
-        <input style={inp} type="email" placeholder="Email address" value={email} onChange={e=>setEmail(e.target.value)}/>
-        <input style={inp} type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/>
-        <button style={{ width:"100%", padding:14, border:"none", borderRadius:10, fontSize:15, fontWeight:600, cursor:loading?"not-allowed":"pointer", background:"#0F1F38", color:"#fff", fontFamily:"inherit", opacity:loading?0.7:1 }} onClick={submit} disabled={loading}>
-          {loading?"Please wait...":mode==="login"?"Sign In":"Create Account"}
-        </button>
-        <div style={{ textAlign:"center", marginTop:18, fontSize:14, color:"#888" }}>
-          {mode==="login"
-            ? <>No account? <span style={{ color:"#185FA5", cursor:"pointer", fontWeight:600 }} onClick={()=>setMode("signup")}>Sign up</span></>
-            : <>Have an account? <span style={{ color:"#185FA5", cursor:"pointer", fontWeight:600 }} onClick={()=>setMode("login")}>Sign in</span></>}
+      <style>{`
+        ::placeholder { color: rgba(255,255,255,0.4) !important; }
+        input:-webkit-autofill { -webkit-box-shadow: 0 0 0px 1000px #1a2f52 inset !important; -webkit-text-fill-color: #fff !important; }
+      `}</style>
+
+      {/* Hero section */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"48px 28px 32px" }}>
+
+        {/* Logo */}
+        <div style={{ background:"#fff", borderRadius:20, padding:"14px 14px 10px", marginBottom:28, boxShadow:"0 8px 32px rgba(0,0,0,0.3)" }}>
+          <img src={VESTAR_LOGO} alt="Vestar" style={{ width:80, height:80, objectFit:"contain", display:"block" }}/>
         </div>
-        {mode==="login" && (
-          <div style={{ textAlign:"center", marginTop:10 }}>
-            <span style={{ color:"#aaa", fontSize:13, cursor:"pointer" }} onClick={async()=>{ if(!email){alert("Enter your email first");return;} await supabase.auth.resetPasswordForEmail(email); alert("Password reset email sent!");}}>Forgot password?</span>
+
+        {/* App name + tagline */}
+        <div style={{ fontSize:11, fontWeight:600, color:"rgba(180,200,230,0.6)", letterSpacing:"0.15em", marginBottom:8, textTransform:"uppercase" }}>PropInspect</div>
+        <div style={{ fontSize:26, fontWeight:700, color:"#fff", marginBottom:6, textAlign:"center", lineHeight:1.2 }}>
+          {mode==="login" ? tagline : "Create your account"}
+        </div>
+        <div style={{ fontSize:14, color:"rgba(180,200,230,0.7)", marginBottom:36, textAlign:"center" }}>
+          {mode==="login" ? "Vestar Property Management" : "Get started with PropInspect"}
+        </div>
+
+        {/* Card */}
+        <div style={{ width:"100%", background:"rgba(255,255,255,0.06)", borderRadius:20, padding:"24px 20px", border:"1px solid rgba(255,255,255,0.1)", backdropFilter:"blur(10px)" }}>
+
+          {/* Error */}
+          {error && (
+            <div style={{ background:"rgba(252,235,235,0.15)", border:"1px solid rgba(240,149,149,0.4)", borderRadius:10, padding:"10px 14px", marginBottom:16, fontSize:13, color:"#FFC5C5" }}>
+              {error}
+            </div>
+          )}
+
+          {/* Reset sent confirmation */}
+          {resetSent && (
+            <div style={{ background:"rgba(225,245,238,0.15)", border:"1px solid rgba(29,158,117,0.4)", borderRadius:10, padding:"10px 14px", marginBottom:16, fontSize:13, color:"#9FE1CB" }}>
+              Password reset email sent — check your inbox.
+            </div>
+          )}
+
+          {mode==="signup" && (
+            <input style={inp} type="text" placeholder="Full name" value={name} onChange={e=>setName(e.target.value)}/>
+          )}
+          <input style={inp} type="email" placeholder="Email address" value={email} onChange={e=>setEmail(e.target.value)}/>
+          <input style={{...inp, marginBottom:20}} type="password" placeholder="Password" value={password}
+            onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}/>
+
+          {/* Submit button */}
+          <button onClick={submit} disabled={loading} style={{
+            width:"100%", padding:"15px", border:"none", borderRadius:12,
+            fontSize:15, fontWeight:700, cursor:loading?"not-allowed":"pointer",
+            background: loading ? "rgba(29,158,117,0.5)" : "#1D9E75",
+            color:"#fff", fontFamily:"inherit",
+            transition:"all 0.15s", letterSpacing:0.3,
+            boxShadow: loading ? "none" : "0 4px 16px rgba(29,158,117,0.4)",
+          }}>
+            {loading ? "Just a moment..." : mode==="login" ? "Sign In" : "Create Account"}
+          </button>
+
+          {/* Mode toggle */}
+          <div style={{ textAlign:"center", marginTop:16, fontSize:14, color:"rgba(180,200,230,0.7)" }}>
+            {mode==="login"
+              ? <>New here? <span style={{ color:"#1D9E75", cursor:"pointer", fontWeight:600 }} onClick={()=>{setMode("signup");setError("");}}>Create an account</span></>
+              : <>Already have an account? <span style={{ color:"#1D9E75", cursor:"pointer", fontWeight:600 }} onClick={()=>{setMode("login");setError("");}}>Sign in</span></>}
           </div>
-        )}
+
+          {/* Forgot password */}
+          {mode==="login" && (
+            <div style={{ textAlign:"center", marginTop:10 }}>
+              <span style={{ color:"rgba(180,200,230,0.45)", fontSize:13, cursor:"pointer" }}
+                onClick={async () => {
+                  if (!email) { setError("Enter your email address first."); return; }
+                  await supabase.auth.resetPasswordForEmail(email);
+                  setResetSent(true); setError("");
+                }}>
+                Forgot password?
+              </span>
+            </div>
+          )}
+        </div>
       </div>
-      <div style={{ padding:20, textAlign:"center" }}>
-        <div style={{ fontSize:11, color:"#aaa" }}>PropInspect · Vestar Property Management</div>
+
+      {/* Footer */}
+      <div style={{ padding:"16px 24px 24px", textAlign:"center" }}>
+        <div style={{ fontSize:11, color:"rgba(180,200,230,0.3)", letterSpacing:"0.05em" }}>
+          VESTAR PROPERTY MANAGEMENT · PROPINSPECT
+        </div>
       </div>
     </div>
   );
@@ -1969,14 +2044,13 @@ export default function App() {
   );
   // ── Layout ────────────────────────────────────────────────────────────────
   const inFlow=tab==="inspect"&&scr!=="home";
-  if (!authReady || !dataLoaded) return (
+  // Step 1 — waiting for Supabase to confirm auth state (usually <1 sec)
+  if (!authReady) return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0F1F38",fontFamily:"'DM Sans',system-ui",padding:32}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
-      {/* Vestar logo */}
       <img src={VESTAR_LOGO} alt="Vestar" style={{width:90,height:90,objectFit:"contain",marginBottom:28,borderRadius:12,background:"#fff",padding:8}}/>
       <div style={{fontSize:22,fontWeight:700,color:"#fff",marginBottom:6,letterSpacing:-0.3}}>PropInspect</div>
       <div style={{fontSize:14,color:"rgba(180,200,230,0.8)",marginBottom:36}}>Vestar Property Management</div>
-      {/* Animated loading dots */}
       <div style={{display:"flex",gap:8,marginBottom:32}}>
         {[0,1,2].map(i=>(
           <div key={i} style={{width:10,height:10,borderRadius:"50%",background:"#1D9E75",
@@ -1984,20 +2058,32 @@ export default function App() {
             animationFillMode:"both"}}/>
         ))}
       </div>
-      <div style={{fontSize:13,color:"rgba(180,200,230,0.5)"}}>Getting your properties ready...</div>
-      {/* Bounce animation */}
-      <style>{`
-        @keyframes bounce {
-          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-          40% { transform: scale(1); opacity: 1; }
-        }
-      `}</style>
-      {authReady&&!dataLoaded&&(
-        <button onClick={signOut} style={{marginTop:40,padding:"8px 20px",background:"transparent",color:"rgba(180,200,230,0.5)",border:"0.5px solid rgba(180,200,230,0.2)",borderRadius:10,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Sign out</button>
-      )}
+      <style>{`@keyframes bounce{0%,80%,100%{transform:scale(0.6);opacity:0.4}40%{transform:scale(1);opacity:1}}`}</style>
     </div>
   );
+
+  // Step 2 — auth confirmed, no session → show login
   if (!session) return <LoginScreen />;
+
+  // Step 3 — logged in but data not yet loaded → show loading with user context
+  if (!dataLoaded) return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0F1F38",fontFamily:"'DM Sans',system-ui",padding:32}}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+      <img src={VESTAR_LOGO} alt="Vestar" style={{width:90,height:90,objectFit:"contain",marginBottom:28,borderRadius:12,background:"#fff",padding:8}}/>
+      <div style={{fontSize:22,fontWeight:700,color:"#fff",marginBottom:6,letterSpacing:-0.3}}>PropInspect</div>
+      <div style={{fontSize:14,color:"rgba(180,200,230,0.8)",marginBottom:36}}>Vestar Property Management</div>
+      <div style={{display:"flex",gap:8,marginBottom:32}}>
+        {[0,1,2].map(i=>(
+          <div key={i} style={{width:10,height:10,borderRadius:"50%",background:"#1D9E75",
+            animation:`bounce 1.2s ease-in-out ${i*0.2}s infinite`,
+            animationFillMode:"both"}}/>
+        ))}
+      </div>
+      <div style={{fontSize:13,color:"rgba(180,200,230,0.5)",marginBottom:40}}>Getting your properties ready...</div>
+      <style>{`@keyframes bounce{0%,80%,100%{transform:scale(0.6);opacity:0.4}40%{transform:scale(1);opacity:1}}`}</style>
+      <button onClick={signOut} style={{padding:"8px 20px",background:"transparent",color:"rgba(180,200,230,0.4)",border:"0.5px solid rgba(180,200,230,0.2)",borderRadius:10,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Sign out</button>
+    </div>
+  );
 
   return(
     <ErrorBoundary>
