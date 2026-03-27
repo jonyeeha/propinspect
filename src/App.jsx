@@ -1196,37 +1196,36 @@ export default function App() {
           const pr=properties.find(p=>p.id===insp.property_id);
           const prName=pr?.name||"";
 
-          // ── Cover page (reference style) ──────────────────────────────────
+          // ── Cover page ────────────────────────────────────────────────────
           newPage();
-          // Navy header bar
+          // Navy header bar — no green band
           doc.setFillColor(15,31,56);doc.rect(0,0,PW,18,"F");
           doc.setFont("helvetica","bold");doc.setFontSize(11);doc.setTextColor(255,255,255);
-          doc.text("INSPECTION REPORT",ML,11);
+          doc.text("PROPERTY INSPECTION",ML,11);
           doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(180,200,230);
-          doc.text(prName,PW-MR,11,{align:"right"});
-          y=28;
-          // Vestar logo
-          try{doc.addImage(VESTAR_LOGO,"JPEG",ML,y,24,24);}catch(_){}
-          // Property title
-          doc.setFont("helvetica","bold");doc.setFontSize(20);doc.setTextColor(15,31,56);
-          const coverTitleLines=doc.splitTextToSize(prName,CW-34);
-          doc.text(coverTitleLines,ML+30,y+9);
-          y+=Math.max(30,coverTitleLines.length*10+4);
-          // Date
+          doc.text(insp.date,PW-MR,11,{align:"right"});
+          y=26;
+          // Vestar logo — cover page only
+          try{doc.addImage(VESTAR_LOGO,"JPEG",ML,y,28,28);}catch(_){}
+          // "Property Inspection" heading
+          doc.setFont("helvetica","bold");doc.setFontSize(22);doc.setTextColor(15,31,56);
+          doc.text("Property Inspection",ML+34,y+10);
+          // Property name below heading
+          doc.setFont("helvetica","normal");doc.setFontSize(13);doc.setTextColor(60,60,60);
+          doc.text(prName,ML+34,y+20);
+          y+=36;
+          // Date line
           doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(100,100,100);
           const longDate=new Date().toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
-          doc.text(longDate,ML,y);y+=6;
-          doc.text(`Inspection Date: ${insp.date}`,ML,y);y+=10;
-          // Red divider rule (matches reference PDF)
-          doc.setDrawColor(160,0,0);doc.setLineWidth(0.8);doc.line(ML,y,PW-MR,y);y+=8;
-          // Summary counts
+          doc.text(longDate,ML,y);y+=10;
+          // Red divider rule
+          doc.setDrawColor(160,0,0);doc.setLineWidth(0.8);doc.line(ML,y,PW-MR,y);y+=10;
+          // Summary — no "Issues Identified", no "Issues Completed" line
           const allItems=Object.entries(insp.items||{});
           const satC=allItems.filter(([,v])=>v.status==="sat").length;
           const unsatC=allItems.filter(([,v])=>v.status==="unsat").length;
           const flagC=allItems.filter(([,v])=>v.status==="flagged").length;
           const ratedC=satC+unsatC+flagC;
-          doc.setFont("helvetica","bold");doc.setFontSize(13);doc.setTextColor(20,20,20);
-          doc.text(`${unsatC+flagC} Issues Identified`,ML,y);y+=7;
           doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(100,100,100);
           doc.text(`${satC} Satisfactory  ·  ${unsatC} Unsatisfactory  ·  ${flagC} Work Orders`,ML,y);y+=6;
           doc.text(`${ratedC} of ${allItems.length} items rated`,ML,y);
@@ -1234,7 +1233,9 @@ export default function App() {
 
           // ── Issue pages — reference PDF style ────────────────────────────
           // Bold ALL-CAPS title + red rule + "Issue Completed" + comment + numbered 3-up grid
-          clTemplate.forEach(sec=>{
+          // Use CHECKLIST_TEMPLATE (hardcoded correct order) for PDF iteration
+          // This prevents DB sort_order mismatches causing wrong item ordering
+          CHECKLIST_TEMPLATE.forEach(sec=>{
             const si=sec.items.map(item=>({
               item,
               state:insp.items?.[`${sec.area}::${item}`]||{status:"none",photos:[],comment:""}
@@ -1277,8 +1278,10 @@ export default function App() {
               y+=5;
 
               // Issue Completed status
-              doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(120,120,120);
-              doc.text(`Issue Completed: ${completedLabel}`,ML,y);y+=6;
+              // Status: "Satisfactory" or "Unsatisfactory" (no "Issue Completed")
+              const[str2,stg2,stb2]=hexRgb(isSat?"#0F6E56":isFlag?"#854F0B":"#993C1D");
+              doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(str2,stg2,stb2);
+              doc.text(isSat?"Satisfactory":isFlag?"Work Order Raised":"Unsatisfactory",ML,y);y+=6;
 
               // Comment / description
               if(commentLines.length>0){
