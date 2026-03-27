@@ -1848,13 +1848,13 @@ export default function App() {
         {editMgrFlag?(<>
           <input type="email" style={S.inp} value={editMgrVal} onChange={e=>setEditMgrVal(e.target.value)}/>
           <div style={{display:"flex",gap:8}}>
-            <button style={{...S.pbtn("gh"),flex:1}} onClick={()=>setEditMgr(false)}>Cancel</button>
+            <button style={{...S.pbtn("gh"),flex:1}} onClick={()=>setEditMgrFlag(false)}>Cancel</button>
             <button style={{...S.pbtn("gn"),flex:1}} onClick={saveManagerEmail}>Save</button>
           </div>
         </>):(
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <span style={{fontSize:14,color:"#555"}}>{mgrEmail}</span>
-            <button style={{fontSize:13,padding:"5px 12px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.15)",background:"#fff",cursor:"pointer",fontFamily:"inherit"}} onClick={()=>setEditMgr(true)}>Edit</button>
+            <button style={{fontSize:13,padding:"5px 12px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.15)",background:"#fff",cursor:"pointer",fontFamily:"inherit"}} onClick={()=>setEditMgrFlag(true)}>Edit</button>
           </div>
         )}
       </div></div>
