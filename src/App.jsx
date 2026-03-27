@@ -1192,136 +1192,135 @@ export default function App() {
         }
 
         insps.forEach((insp,ii)=>{
-          // Cover page for this inspection
-          newPage();
-          doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
-          doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
-          const pr=properties.find(p=>p.id===insp.propertyId);
-          doc.text(`INSPECTION REPORT  ·  ${pr?.name||"Unknown Property"}`,ML,9);
-          y=24;
-          doc.setFont("helvetica","bold");doc.setFontSize(18);doc.setTextColor(15,31,56);
-          doc.text(pr?.name||"Unknown Property",ML,y);y+=10;
-          doc.setFont("helvetica","normal");doc.setFontSize(11);doc.setTextColor(100,100,100);
-          doc.text(`Inspection Date: ${insp.date}`,ML,y);y+=8;
+          // ── Fix: snake_case property_id from Supabase ───────────────────
+          const pr=properties.find(p=>p.id===insp.property_id);
+          const prName=pr?.name||"";
 
+          // ── Cover page (reference style) ──────────────────────────────────
+          newPage();
+          // Navy header bar
+          doc.setFillColor(15,31,56);doc.rect(0,0,PW,18,"F");
+          doc.setFont("helvetica","bold");doc.setFontSize(11);doc.setTextColor(255,255,255);
+          doc.text("INSPECTION REPORT",ML,11);
+          doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(180,200,230);
+          doc.text(prName,PW-MR,11,{align:"right"});
+          y=28;
+          // Vestar logo
+          try{doc.addImage(VESTAR_LOGO,"JPEG",ML,y,24,24);}catch(_){}
+          // Property title
+          doc.setFont("helvetica","bold");doc.setFontSize(20);doc.setTextColor(15,31,56);
+          const coverTitleLines=doc.splitTextToSize(prName,CW-34);
+          doc.text(coverTitleLines,ML+30,y+9);
+          y+=Math.max(30,coverTitleLines.length*10+4);
+          // Date
+          doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(100,100,100);
+          const longDate=new Date().toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
+          doc.text(longDate,ML,y);y+=6;
+          doc.text(`Inspection Date: ${insp.date}`,ML,y);y+=10;
+          // Red divider rule (matches reference PDF)
+          doc.setDrawColor(160,0,0);doc.setLineWidth(0.8);doc.line(ML,y,PW-MR,y);y+=8;
           // Summary counts
           const allItems=Object.entries(insp.items||{});
           const satC=allItems.filter(([,v])=>v.status==="sat").length;
           const unsatC=allItems.filter(([,v])=>v.status==="unsat").length;
           const flagC=allItems.filter(([,v])=>v.status==="flagged").length;
           const ratedC=satC+unsatC+flagC;
-          y+=4;
-          [[`${satC} Satisfactory`,"#0F6E56","#E1F5EE"],[`${unsatC} Unsatisfactory`,"#993C1D","#FAECE7"],[`${flagC} Work Orders`,"#854F0B","#FAEEDA"]].forEach(([lbl,tx,bg],sidx)=>{
-            const bx=ML+sidx*(CW/3);
-            const[br,bg2,bb]=hexRgb(bg);doc.setFillColor(br,bg2,bb);doc.roundedRect(bx,y,CW/3-4,16,3,3,"F");
-            const[tr,tg,tb]=hexRgb(tx);doc.setTextColor(tr,tg,tb);
-            doc.setFont("helvetica","bold");doc.setFontSize(10);
-            doc.text(lbl,bx+(CW/3-4)/2,y+9,{align:"center"});
-          });
-          y+=22;
-          doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(120,120,120);
+          doc.setFont("helvetica","bold");doc.setFontSize(13);doc.setTextColor(20,20,20);
+          doc.text(`${unsatC+flagC} Issues Identified`,ML,y);y+=7;
+          doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(100,100,100);
+          doc.text(`${satC} Satisfactory  ·  ${unsatC} Unsatisfactory  ·  ${flagC} Work Orders`,ML,y);y+=6;
           doc.text(`${ratedC} of ${allItems.length} items rated`,ML,y);
           drawFooter();
 
-          // ── One page per checklist section ────────────────────────────
+          // ── Issue pages — reference PDF style ────────────────────────────
+          // Bold ALL-CAPS title + red rule + "Issue Completed" + comment + numbered 3-up grid
           clTemplate.forEach(sec=>{
             const si=sec.items.map(item=>({
               item,
               state:insp.items?.[`${sec.area}::${item}`]||{status:"none",photos:[],comment:""}
             })).filter(x=>{
               if(x.state.status==="none") return false;
-              const ik=`${insp.id}::${sec.area}::${x.item}`;  // use x.item not item (out of scope here)
+              const ik=`${insp.id}::${sec.area}::${x.item}`;
               return rptItemSel[ik]!==false;
             });
             if(!si.length)return;
 
-            // New page for every section
-            newPage();
-
-            // ── Consistent navy header — same on every page ──────────────
-            doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
-            doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
-            doc.text(`INSPECTION REPORT  ·  ${pr?.name||""}`,ML,9);
-            doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(180,200,230);
-            doc.text(insp.date,PW-MR,9,{align:"right"});
-
-            // ── Category name — same large style as property name on cover ─
-            y=28;
-            doc.setFont("helvetica","bold");doc.setFontSize(18);doc.setTextColor(15,31,56);
-            const secLines=doc.splitTextToSize(sec.area,CW);
-            doc.text(secLines,ML,y);
-            y+=secLines.length*8+4;
-
-            // Teal underline accent
-            doc.setFillColor(29,158,117);doc.rect(ML,y,CW,2,"F");
-            y+=8;
-
             si.forEach(({item,state})=>{
               const isSat=state.status==="sat";
               const isFlag=state.status==="flagged";
-              const statusLabel=isSat?"Satisfactory":isFlag?"Work Order":"Unsatisfactory";
-              const statusHex=isSat?"#0F6E56":isFlag?"#854F0B":"#993C1D";
-              const statusBg=isSat?"#E1F5EE":isFlag?"#FAEEDA":"#FAECE7";
-              const statusBorder=isSat?"#9FE1CB":isFlag?"#FAC775":"#F5C4B3";
-
-              const ROW_H=22;
-              chkY(ROW_H+4);
-
-              // Full-width colored background block
-              const[sbr,sbg,sbb]=hexRgb(statusBg);
-              doc.setFillColor(sbr,sbg,sbb);
-              doc.roundedRect(ML,y,CW,ROW_H,2,2,"F");
-
-              // Subtle border
-              const[bdr,bdg,bdb]=hexRgb(statusBorder);
-              doc.setDrawColor(bdr,bdg,bdb);
-              doc.setLineWidth(0.3);
-              doc.roundedRect(ML,y,CW,ROW_H,2,2,"S");
-
-              // Item name — centered horizontally in upper half of block
-              doc.setFont("helvetica","bold");
-              doc.setFontSize(10);
-              doc.setTextColor(30,30,30);
-              let displayItem=item;
-              while(doc.getTextWidth(displayItem)>CW-8&&displayItem.length>4){
-                displayItem=displayItem.slice(0,-1);
-              }
-              if(displayItem!==item)displayItem=displayItem.slice(0,-1)+"\u2026";
-              doc.text(displayItem,ML+CW/2,y+8,{align:"center"});
-
-              // Status label — centered in lower half, colored text
-              const[str,stg,stb]=hexRgb(statusHex);
-              doc.setFont("helvetica","bold");
-              doc.setFontSize(8);
-              doc.setTextColor(str,stg,stb);
-              doc.text(statusLabel.toUpperCase(),ML+CW/2,y+16,{align:"center"});
-
-              y+=ROW_H+4;
-
-              // Comment for unsatisfactory items
-              if(state.comment&&state.comment.trim()){
-                chkY(12);
-                doc.setFillColor(255,250,245);
-                doc.roundedRect(ML,y,CW,10,2,2,"F");
-                doc.setFont("helvetica","italic");doc.setFontSize(9);doc.setTextColor(80,60,40);
-                const cLines=doc.splitTextToSize(`Comment: ${state.comment}`,CW-6);
-                doc.text(cLines,ML+3,y+5);
-                y+=Math.max(10,cLines.length*5)+4;
-              }
-
-              // Photos for this item — each full width, correct aspect ratio
+              const completedLabel=isSat||isFlag?"Yes":"No";
               const ip=Array.isArray(state.photos)?state.photos:[];
-              ip.forEach(src=>{
-                const needed=90;
-                chkY(needed);
-                const used=addPhoto(src,CW,85);
-                y+=used+4;
-              });
+              const commentLines=state.comment&&state.comment.trim()?doc.splitTextToSize(state.comment,CW):[];
+              const gridPW=(CW-8)/3; const gridPH=gridPW*0.75;
+              const photoRows=Math.ceil(ip.length/3);
+              const neededH=28+commentLines.length*5+(photoRows>0?photoRows*(gridPH+8):0)+10;
+              chkY(neededH);
 
-              y+=2;
+              // Re-draw page header if new page started
+              if(y<=2){
+                doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
+                doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
+                doc.text(`INSPECTION REPORT  ·  ${prName}`,ML,9);
+                doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(180,200,230);
+                doc.text(insp.date,PW-MR,9,{align:"right"});
+                y=18;
+              }
+
+              // Bold ALL-CAPS issue title
+              doc.setFont("helvetica","bold");doc.setFontSize(12);doc.setTextColor(20,20,20);
+              const itemLines=doc.splitTextToSize(item.toUpperCase(),CW);
+              doc.text(itemLines,ML,y);
+              y+=itemLines.length*6+2;
+
+              // Red horizontal rule (reference style)
+              doc.setDrawColor(160,0,0);doc.setLineWidth(0.6);doc.line(ML,y,PW-MR,y);
+              y+=5;
+
+              // Issue Completed status
+              doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(120,120,120);
+              doc.text(`Issue Completed: ${completedLabel}`,ML,y);y+=6;
+
+              // Comment / description
+              if(commentLines.length>0){
+                doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(50,50,50);
+                doc.text(commentLines,ML,y);y+=commentLines.length*5+4;
+              }
+
+              // Numbered 3-up photo grid (matches reference exactly)
+              if(ip.length>0){
+                const gap=4;
+                const cols=3;
+                const pw2=(CW-(cols-1)*gap)/cols;
+                const ph2=pw2*0.75;
+                let rowY=y;
+                ip.slice(0,9).forEach((imgSrc,pi)=>{
+                  if(pi>0&&pi%cols===0){
+                    rowY+=ph2+8;
+                    chkY(ph2+14);
+                    if(y<=2){
+                      doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
+                      doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
+                      doc.text(`INSPECTION REPORT  ·  ${prName}`,ML,9);
+                      doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(180,200,230);
+                      doc.text(insp.date,PW-MR,9,{align:"right"});
+                      rowY=18;
+                    }
+                  }
+                  const col=pi%cols;
+                  const px=ML+col*(pw2+gap);
+                  try{doc.addImage(imgSrc,"JPEG",px,rowY,pw2,ph2);}
+                  catch(_){doc.setFillColor(220,228,240);doc.roundedRect(px,rowY,pw2,ph2,2,2,"F");}
+                  // Dark circle number badge
+                  doc.setFillColor(35,35,35);doc.circle(px+pw2-7,rowY+7,5.5,"F");
+                  doc.setFont("helvetica","bold");doc.setFontSize(8);doc.setTextColor(255,255,255);
+                  doc.text(String(pi+1),px+pw2-7,rowY+7+2.8,{align:"center"});
+                });
+                y=rowY+ph2+10;
+              }
+
+              y+=4;
+              drawFooter();
             });
-
-            drawFooter();
           });
         });
       }
