@@ -166,7 +166,7 @@ function LoginScreen() {
   };
 
   const messages = {
-    login:  ["Good to see you.", "Welcome back.", "Let's get to work.", "Ready when you are."],
+    login:  ["Good to see you.", "Ready when you are.", "Let's get to work.", "Details matter. You've got this.", "Everything you need — right here.", "Clear and ready.", "Let's take a walk."],
     signup: ["Let's get you set up.", "Welcome aboard.", "Great properties start here."],
   };
   // Pick a consistent message based on day of week
