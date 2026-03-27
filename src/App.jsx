@@ -142,18 +142,25 @@ function LoginScreen() {
   const [resetSent, setResetSent] = useState(false);
 
   const submit = async () => {
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setResetSent(false);
     try {
       if (mode === "login") {
         const { error: e } = await supabase.auth.signInWithPassword({ email, password });
         if (e) throw e;
+        // Success — keep loading=true, auth state change will unmount this component naturally
+        return;
       } else {
         const { data, error: e } = await supabase.auth.signUp({ email, password });
         if (e) throw e;
-        if (data?.user) await supabase.from("profiles").update({ full_name: name }).eq("id", data.user.id);
+        if (data?.user) {
+          await supabase.from("profiles").update({ full_name: name }).eq("id", data.user.id);
+          return; // let auth state change handle the transition
+        }
       }
-    } catch(e) { setError(e.message); }
-    setLoading(false);
+    } catch(e) {
+      setError(e.message);
+      setLoading(false); // only reset loading on error
+    }
   };
 
   const inp = {
@@ -230,7 +237,7 @@ function LoginScreen() {
             transition:"all 0.15s", letterSpacing:0.3,
             boxShadow: loading ? "none" : "0 4px 16px rgba(29,158,117,0.4)",
           }}>
-            {loading ? "Just a moment..." : mode==="login" ? "Sign In" : "Create Account"}
+            {loading ? (mode==="login" ? "Signing in..." : "Creating account...") : mode==="login" ? "Sign In" : "Create Account"}
           </button>
 
           {/* Mode toggle */}
