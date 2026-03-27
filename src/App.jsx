@@ -8,6 +8,9 @@ const supabase = createClient(SUPA_URL, SUPA_KEY);
 const CACHE_KEY = "propinspect_cache_v1";
 const saveCache = (uid, data) => { try { localStorage.setItem(CACHE_KEY+"_"+uid, JSON.stringify(data)); } catch(_){} };
 const loadCache = (uid) => { try { const r=localStorage.getItem(CACHE_KEY+"_"+uid); return r?JSON.parse(r):null; } catch(_){ return null; } };
+// Read the last known user ID from localStorage so we can pre-load cache before auth resolves
+const getLastUid = () => { try { return localStorage.getItem("propinspect_last_uid")||null; } catch(_){ return null; } };
+const setLastUid = (uid) => { try { localStorage.setItem("propinspect_last_uid", uid); } catch(_){} };
 
 const CHECKLIST_TEMPLATE = [
   { area: "Parking Lot", items: ["Condition", "Cleanliness", "Striping"] },
@@ -278,17 +281,19 @@ export default function App() {
   const [session,    setSession]    = useState(null);
   const [profile,    setProfile]    = useState(null);
   const [authReady,  setAuthReady]  = useState(false);
-  const [dataLoaded, setDataLoaded] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(!!_preload); // true immediately if cache exists
   const [saving,     setSaving]     = useState(false);
 
   // ── Cloud data ─────────────────────────────────────────────────────────────
-  const [properties,  setProperties]  = useState([]);
-  const [contractors, setContractors] = useState([]);
-  const [clTemplate,  setClTemplate]  = useState([]);
-  const [workOrders,  setWorkOrders]  = useState([]);
-  const [inspections, setInspections] = useState([]);
-  const [nextWONum,   setNextWONum]   = useState(1001);
-  const [mgrEmail,    setMgrEmail]    = useState("");
+  // Pre-load from cache immediately — before auth even resolves
+  const _preload = (() => { try { const uid=getLastUid(); return uid?loadCache(uid):null; } catch(_){ return null; } })();
+  const [properties,  setProperties]  = useState(_preload?.properties  || []);
+  const [contractors, setContractors] = useState(_preload?.contractors || []);
+  const [clTemplate,  setClTemplate]  = useState(_preload?.clTemplate  || []);
+  const [workOrders,  setWorkOrders]  = useState(_preload?.workOrders  || []);
+  const [inspections, setInspections] = useState(_preload?.inspections || []);
+  const [nextWONum,   setNextWONum]   = useState(_preload?.nextWONum   || 1001);
+  const [mgrEmail,    setMgrEmail]    = useState(_preload?.mgrEmail    || "");
 
   // ── UI state ───────────────────────────────────────────────────────────────
   const [tab,    setTab]     = useState("inspect");
@@ -335,14 +340,33 @@ export default function App() {
   // Load saved report history from Supabase storage listing
   // ── Auth listener ──────────────────────────────────────────────────────────
   useEffect(() => {
+    // If we have cached data, mark auth as ready immediately so UI doesn't flicker
+    if (_preload) setAuthReady(true);
+
     supabase.auth.getSession().then(({ data:{session} }) => {
-      setSession(session); setAuthReady(true);
+      setSession(session);
+      setAuthReady(true);
+      if (session?.user?.id) setLastUid(session.user.id);
     });
     const { data:{subscription} } = supabase.auth.onAuthStateChange((_e, s) => {
       setSession(s);
-      if (!s) { setDataLoaded(false); setProperties([]); setWorkOrders([]); setContractors([]); setClTemplate([]); }
+      if (s?.user?.id) setLastUid(s.user.id);
+      if (!s) {
+        setDataLoaded(false);
+        setProperties([]); setWorkOrders([]); setContractors([]); setClTemplate([]);
+        try { localStorage.removeItem("propinspect_last_uid"); } catch(_){}
+      }
     });
     return () => subscription.unsubscribe();
+  }, []);
+
+  // ── Keepalive ping — prevents Supabase free tier cold starts ──────────────
+  useEffect(() => {
+    // Ping immediately on mount to wake up Supabase, then every 4 minutes
+    const ping = () => supabase.from("profiles").select("id").limit(1).then(()=>{}).catch(()=>{});
+    ping();
+    const interval = setInterval(ping, 4 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   // ── Load data on login ─────────────────────────────────────────────────────
@@ -366,9 +390,10 @@ export default function App() {
   const loadAll = async () => {
     const uid = session.user.id;
 
-    // ── Step 1: Show cached data instantly so app feels immediate ─────────
+    // ── Step 1: Apply cache if not already pre-loaded ────────────────────
     const cached = loadCache(uid);
-    if (cached) {
+    if (cached && !_preload) {
+      // Only set if we didn't already pre-load at component init
       setProfile(cached.profile||null);
       setProperties(cached.properties||[]);
       setContractors(cached.contractors||[]);
@@ -377,7 +402,11 @@ export default function App() {
       setInspections(cached.inspections||[]);
       if (cached.mgrEmail) { setMgrEmail(cached.mgrEmail); setEditMgrVal(cached.mgrEmail); }
       if (cached.nextWONum) setNextWONum(cached.nextWONum);
-      setDataLoaded(true); // render immediately from cache
+      setDataLoaded(true);
+    } else if (cached && cached.profile) {
+      // Already pre-loaded — just set profile/email which aren't in state init
+      setProfile(cached.profile);
+      if (cached.mgrEmail) { setMgrEmail(cached.mgrEmail); setEditMgrVal(cached.mgrEmail); }
     }
 
     // ── Step 2: Fetch fresh data from Supabase in background ──────────────
@@ -387,8 +416,8 @@ export default function App() {
         supabase.from("properties").select("*").eq("user_id", uid).order("sort_order"),
         supabase.from("contractors").select("*").eq("user_id", uid).order("created_at"),
         supabase.from("checklist_template").select("*").eq("user_id", uid).order("sort_order"),
-        supabase.from("work_orders").select("*").eq("user_id", uid).order("created_at", {ascending:false}),
-        supabase.from("inspections").select("*").eq("user_id", uid).order("created_at", {ascending:false}),
+        supabase.from("work_orders").select("*").eq("user_id", uid).order("created_at", {ascending:false}).limit(100),
+        supabase.from("inspections").select("*").eq("user_id", uid).order("created_at", {ascending:false}).limit(50),
       ]);
 
       if (prof.error)  console.error("profiles error:",           prof.error);
@@ -498,11 +527,13 @@ export default function App() {
   const [showResume,  setShowResume]  = useState(false);
   const [resumeData,  setResumeData]  = useState(null);
   // Use a ref so autoSaveDraft always sees the current draftKey without stale closure
-  const draftKeyRef = React.useRef(null);
+  const draftKeyRef  = React.useRef(null);
   const saveTimerRef = React.useRef(null);
+  const propIdRef    = React.useRef(null);  // always current prop.id for closures
 
   // Sync ref whenever draftKey state changes
   React.useEffect(() => { draftKeyRef.current = draftKey; }, [draftKey]);
+  React.useEffect(() => { propIdRef.current = prop?.id || null; }, [prop]);
 
   // Check for in-progress draft on load
   useEffect(() => {
@@ -536,8 +567,11 @@ export default function App() {
 
   // Debounced save — waits 1.5s after last change before saving
   const scheduleSave = (propId, items) => {
+    // Use propIdRef as fallback to always get current prop id
+    const pid = propId || propIdRef.current;
+    if (!pid) return; // no property started yet
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => autoSaveDraft(propId, items), 1500);
+    saveTimerRef.current = setTimeout(() => autoSaveDraft(pid, items), 1500);
   };
 
   // ── Checklist ──────────────────────────────────────────────────────────────
@@ -568,37 +602,62 @@ export default function App() {
     setClState(st);
     setOpenA({[clTemplate[0]?.area]:true});
     setDraftPropId(pr.id);
+    propIdRef.current = pr.id; // set ref immediately, don't wait for state update
     setShowResume(false);
     setScr("checklist");
   };
 
-  const finishInspection = async () => {
-    setSaving(true);
-    // Cancel any pending auto-save
+  // Shared save helper — returns saved inspection data or null
+  const _saveInspectionNow = async (status) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const currentDraftKey = draftKeyRef.current;
     try {
-      const currentDraftKey = draftKeyRef.current;
       if (currentDraftKey) {
         const { data, error } = await supabase.from("inspections")
-          .update({items:clState, status:"complete", date:today()}).eq("id",currentDraftKey).select().single();
-        if (error) { console.error("Finish inspection error:", error); alert("Error saving inspection: "+error.message); setSaving(false); return; }
+          .update({items:clState, status, date:today()}).eq("id",currentDraftKey).select().single();
+        if (error) throw error;
         if (data) setInspections(prev=>prev.map(i=>i.id===currentDraftKey?data:i));
+        return data;
       } else {
         const { data, error } = await supabase.from("inspections")
-          .insert({user_id:session.user.id, property_id:prop.id, date:today(), items:clState, status:"complete"}).select().single();
-        if (error) { console.error("Finish inspection error:", error); alert("Error saving inspection: "+error.message); setSaving(false); return; }
+          .insert({user_id:session.user.id, property_id:prop.id, date:today(), items:clState, status}).select().single();
+        if (error) throw error;
         if (data) setInspections(prev=>[data,...prev]);
+        return data;
       }
-      // Only reset after confirmed save
-      draftKeyRef.current = null;
-      setDraftKey(null); setDraftPropId(null);
-      setClState(freshCl()); setProp(null); setScr("home");
     } catch(e) {
-      console.error("finishInspection error:", e);
-      alert("Error saving inspection. Please try again.");
+      console.error("_saveInspectionNow error:", e);
+      alert("Error saving inspection: "+e.message);
+      return null;
     }
+  };
+
+  // "Complete" — marks inspection complete, navigates to Report tab
+  const completeInspection = async () => {
+    setSaving(true);
+    const saved = await _saveInspectionNow("complete");
+    if (!saved) { setSaving(false); return; }
+    draftKeyRef.current = null;
+    setDraftKey(null); setDraftPropId(null);
+    setClState(freshCl()); setProp(null);
+    // Navigate to Report > Inspection Results and pre-select this inspection
+    setRptMode("inspection");
+    setRptInspSel({[saved.id]: true});
+    setTab("report");
+    setScr("home");
     setSaving(false);
   };
+
+  // "Save" — saves as draft, returns to home
+  const saveInspection = async () => {
+    setSaving(true);
+    await _saveInspectionNow("draft");
+    setSaving(false);
+    setScr("home");
+  };
+
+  // Keep old name as alias for any remaining references
+  const finishInspection = completeInspection;
 
   const setSat = (k,val) => {
     setClState(prev => {
@@ -1481,7 +1540,26 @@ export default function App() {
             );
           })}
         </div>
-        <div style={S.bbar}><button style={S.pbtn("dk")} onClick={finishInspection}>Finish &amp; Save Inspection</button></div>
+        <div style={{...S.bbar, flexDirection:"column", gap:8, display:"flex"}}>
+          {/* Auto-save indicator */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:12,color:"#aaa",marginBottom:2}}>
+            {saving
+              ? <><span style={{width:7,height:7,borderRadius:"50%",background:"#FAC775",display:"inline-block",animation:"pulse 1s infinite"}}/>Saving...</>
+              : draftKeyRef.current
+                ? <><span style={{width:7,height:7,borderRadius:"50%",background:"#1D9E75",display:"inline-block"}}/>Auto-saved</>
+                : <><span style={{width:7,height:7,borderRadius:"50%",background:"#ddd",display:"inline-block"}}/>Not yet saved</>
+            }
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            <button style={{...S.pbtn("gh"), flex:1, fontSize:14}} onClick={saveInspection} disabled={saving}>
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button style={{...S.pbtn("gn"), flex:2, fontSize:14, fontWeight:700}} onClick={completeInspection} disabled={saving}>
+              {saving ? "Saving..." : "Complete →"}
+            </button>
+          </div>
+          <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+        </div>
       </>
     );
   };
