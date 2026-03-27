@@ -35,7 +35,7 @@ const CHECKLIST_TEMPLATE = [
 ];
 
 
-// No default seed data — users add their own properties and contractors
+// No default seed data -- users add their own properties and contractors
 
 const PRI  = { Urgent:{bg:"#FCEBEB",tx:"#A32D2D"}, High:{bg:"#FAECE7",tx:"#993C1D"}, Medium:{bg:"#FAEEDA",tx:"#854F0B"}, Low:{bg:"#EAF3DE",tx:"#3B6D11"} };
 const STA  = { pending:{bg:"#FAEEDA",tx:"#854F0B"}, accepted:{bg:"#E6F1FB",tx:"#185FA5"}, complete:{bg:"#E1F5EE",tx:"#0F6E56"} };
@@ -119,7 +119,7 @@ function PhotoPicker({photos=[],onChange,label="Photos"}) {
 }
 
 
-// ── Error boundary — shows a message instead of blank page on crash ──────────
+// ── Error boundary -- shows a message instead of blank page on crash ──────────
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(e) { return { error: e }; }
@@ -150,7 +150,7 @@ function LoginScreen() {
       if (mode === "login") {
         const { error: e } = await supabase.auth.signInWithPassword({ email, password });
         if (e) throw e;
-        // Success — keep loading=true, auth state change will unmount this component naturally
+        // Success -- keep loading=true, auth state change will unmount this component naturally
         return;
       } else {
         const { data, error: e } = await supabase.auth.signUp({ email, password });
@@ -176,7 +176,7 @@ function LoginScreen() {
   };
 
   const messages = {
-    login:  ["Good to see you.", "Ready when you are.", "Let's get to work.", "Details matter. You've got this.", "Everything you need — right here.", "Clear and ready.", "Let's take a walk."],
+    login:  ["Good to see you.", "Ready when you are.", "Let's get to work.", "Details matter. You've got this.", "Everything you need -- right here.", "Clear and ready.", "Let's take a walk."],
     signup: ["Let's get you set up.", "Welcome aboard.", "Great properties start here."],
   };
   // Pick a consistent message based on day of week
@@ -220,7 +220,7 @@ function LoginScreen() {
           {/* Reset sent confirmation */}
           {resetSent && (
             <div style={{ background:"rgba(225,245,238,0.15)", border:"1px solid rgba(29,158,117,0.4)", borderRadius:10, padding:"10px 14px", marginBottom:16, fontSize:13, color:"#9FE1CB" }}>
-              Password reset email sent — check your inbox.
+              Password reset email sent -- check your inbox.
             </div>
           )}
 
@@ -283,7 +283,7 @@ export default function App() {
   const [authReady,  setAuthReady]  = useState(false);
   const [saving,     setSaving]     = useState(false);
 
-  // ── Cloud data — pre-load from cache before auth resolves ─────────────────
+  // ── Cloud data -- pre-load from cache before auth resolves ─────────────────
   const _preload = (() => { try { const uid=getLastUid(); return uid?loadCache(uid):null; } catch(_){ return null; } })();
   const [dataLoaded, setDataLoaded] = useState(!!_preload); // true immediately if cache exists
   const [properties,  setProperties]  = useState(_preload?.properties  || []);
@@ -359,7 +359,7 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── Keepalive ping — prevents Supabase free tier cold starts ──────────────
+  // ── Keepalive ping -- prevents Supabase free tier cold starts ──────────────
   useEffect(() => {
     // Ping immediately on mount to wake up Supabase, then every 4 minutes
     const ping = () => supabase.from("profiles").select("id").limit(1).then(()=>{}).catch(()=>{});
@@ -403,7 +403,7 @@ export default function App() {
       if (cached.nextWONum) setNextWONum(cached.nextWONum);
       setDataLoaded(true);
     } else if (cached && cached.profile) {
-      // Already pre-loaded — just set profile/email which aren't in state init
+      // Already pre-loaded -- just set profile/email which aren't in state init
       setProfile(cached.profile);
       if (cached.mgrEmail) { setMgrEmail(cached.mgrEmail); setEditMgrVal(cached.mgrEmail); }
     }
@@ -438,7 +438,7 @@ export default function App() {
       setProperties(props.data||[]);
       setContractors(conts.data||[]);
 
-      // Checklist template — seed on first login only
+      // Checklist template -- seed on first login only
       let tplData = tpl.data||[];
       if (!tpl.error && !tpl.data?.length) {
         const { data:ins, error:tplErr } = await supabase.from("checklist_template")
@@ -564,7 +564,7 @@ export default function App() {
     } catch(e) { console.error("autoSaveDraft error:", e); }
   };
 
-  // Debounced save — waits 1.5s after last change before saving
+  // Debounced save -- waits 1.5s after last change before saving
   const scheduleSave = (propId, items) => {
     // Use propIdRef as fallback to always get current prop id
     const pid = propId || propIdRef.current;
@@ -606,7 +606,7 @@ export default function App() {
     setScr("checklist");
   };
 
-  // Shared save helper — returns saved inspection data or null
+  // Shared save helper -- returns saved inspection data or null
   const _saveInspectionNow = async (status) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     const currentDraftKey = draftKeyRef.current;
@@ -631,7 +631,7 @@ export default function App() {
     }
   };
 
-  // "Complete" — marks inspection complete, navigates to Report tab
+  // "Complete" -- marks inspection complete, navigates to Report tab
   const completeInspection = async () => {
     setSaving(true);
     const saved = await _saveInspectionNow("complete");
@@ -647,7 +647,7 @@ export default function App() {
     setSaving(false);
   };
 
-  // "Save" — saves as draft, returns to home
+  // "Save" -- saves as draft, returns to home
   const saveInspection = async () => {
     setSaving(true);
     await _saveInspectionNow("draft");
@@ -692,7 +692,7 @@ export default function App() {
     setIssDesc(existingComment);  // pre-fill description from inspection comment
     setIssPri("Medium");
     setIssCont(contractors[0]||null); 
-    setIssPhotos(existingPhotos);  // reuse photos from inspection — no need to re-take
+    setIssPhotos(existingPhotos);  // reuse photos from inspection -- no need to re-take
     setScr("issue");
   };
 
@@ -742,7 +742,7 @@ export default function App() {
           });
         } catch(emailErr) {
           console.error("Email send error:", emailErr);
-          // Don't block the flow — WO is saved even if email fails
+          // Don't block the flow -- WO is saved even if email fails
         }
       }
     }
@@ -940,7 +940,7 @@ export default function App() {
         }
       };
 
-      // Renders a labeled photo block — each photo on its own row, full width
+      // Renders a labeled photo block -- each photo on its own row, full width
       const renderPhotoBlock=(photos,label,labelColor)=>{
         if(!photos||!photos.length)return;
         chkY(10);
@@ -967,7 +967,7 @@ export default function App() {
 
       // ── Cover page ────────────────────────────────────────────────────────
       doc.setFillColor(15,31,56);doc.rect(0,0,PW,80,"F");
-      // Vestar logo — top right of header, white background pill, correct aspect ratio
+      // Vestar logo -- top right of header, white background pill, correct aspect ratio
       try {
         const logoW=38, logoH=38; // square logo, fits neatly
         const logoX=PW-MR-logoW;
@@ -1120,11 +1120,11 @@ export default function App() {
 
           doc.setDrawColor(220,220,215);doc.setLineWidth(0.3);doc.line(ML,y,PW-MR,y);y+=7;
 
-          // Detail grid — 2 columns
+          // Detail grid -- 2 columns
           const details=[
-            ["Property",pr?.name||"—"],["Address",pr?.address||"—"],
-            ["Contractor",ct?.name||"—"],["Trade",ct?.trade||"—"],
-            ["Phone",ct?.phone||"—"],["Created",wo.created_at],
+            ["Property",pr?.name||"--"],["Address",pr?.address||"--"],
+            ["Contractor",ct?.name||"--"],["Trade",ct?.trade||"--"],
+            ["Phone",ct?.phone||"--"],["Created",wo.created_at],
             ["Accepted",wo.accepted_at||"Not yet"],["Completed",wo.completed_at||"Not yet"],
           ];
           const cw2=CW/2-4;
@@ -1145,7 +1145,7 @@ export default function App() {
           const dl=doc.splitTextToSize(wo.description,CW);
           chkY(dl.length*5.5+4);doc.text(dl,ML,y);y+=dl.length*5.5+8;
 
-          // Issue photos — each full width, correct aspect ratio
+          // Issue photos -- each full width, correct aspect ratio
           const issArr=Array.isArray(wo.photos)?wo.photos:[];
           renderPhotoBlock(issArr,"ISSUE PHOTOS","#0F1F38");
 
@@ -1207,25 +1207,25 @@ export default function App() {
 
           // ── Inspection cover page ─────────────────────────────────────────
           newPage();
-          // Navy header bar — no green band
+          // Navy header bar -- no green band
           doc.setFillColor(15,31,56);doc.rect(0,0,PW,18,"F");
           doc.setFont("helvetica","bold");doc.setFontSize(11);doc.setTextColor(255,255,255);
           doc.text("PROPERTY INSPECTION",ML,11);
           doc.setFont("helvetica","normal");doc.setFontSize(9);doc.setTextColor(180,200,230);
           doc.text(insp.date,PW-MR,11,{align:"right"});
 
-          // Vestar logo — cover page only, left aligned
+          // Vestar logo -- cover page only, left aligned
           const logoY2=24;
           try{doc.addImage(VESTAR_LOGO,"JPEG",ML,logoY2,26,26);}catch(_){}
 
-          // "Property Inspection" heading — right of logo
+          // "Property Inspection" heading -- right of logo
           doc.setFont("helvetica","bold");doc.setFontSize(22);doc.setTextColor(15,31,56);
           doc.text("Property Inspection",ML+32,logoY2+10);
           // Property name on next line, right of logo
           doc.setFont("helvetica","normal");doc.setFontSize(13);doc.setTextColor(60,60,60);
           doc.text(prName,ML+32,logoY2+20);
 
-          // Date — below logo block, clear of logo
+          // Date -- below logo block, clear of logo
           y=logoY2+34;
           doc.setFont("helvetica","normal");doc.setFontSize(10);doc.setTextColor(100,100,100);
           const longDate=new Date().toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
@@ -1234,7 +1234,7 @@ export default function App() {
           // Red divider rule
           doc.setDrawColor(160,0,0);doc.setLineWidth(0.8);doc.line(ML,y,PW-MR,y);y+=10;
 
-          // Summary counts — on separate lines, clear spacing
+          // Summary counts -- on separate lines, clear spacing
           const allItems=Object.entries(insp.items||{});
           const satC=allItems.filter(([,v])=>v.status==="sat").length;
           const unsatC=allItems.filter(([,v])=>v.status==="unsat").length;
@@ -1246,7 +1246,7 @@ export default function App() {
 
           drawFooter();
 
-          // ── Issue pages — always start on a new page after the cover ─────
+          // ── Issue pages -- always start on a new page after the cover ─────
           // Use CHECKLIST_TEMPLATE (hardcoded correct order) for correct section ordering
           let isFirstSection = true;
           CHECKLIST_TEMPLATE.forEach(sec=>{
@@ -1413,7 +1413,7 @@ export default function App() {
           <div style={{background:"#FFF9EC",border:"1.5px solid #FAC775",borderRadius:14,padding:"14px 16px",marginBottom:16}}>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
               <div style={{width:10,height:10,borderRadius:"50%",background:"#FAC775",flexShrink:0}}/>
-              <div style={{fontSize:14,fontWeight:700,color:"#0F1F38"}}>Inspection saved — not finished</div>
+              <div style={{fontSize:14,fontWeight:700,color:"#0F1F38"}}>Inspection saved -- not finished</div>
             </div>
             <div style={{fontSize:13,color:"#854F0B",marginBottom:4}}>{rProp?.name}</div>
             <div style={{fontSize:12,color:"#999",marginBottom:12}}>Started {resumeData.date} · {rated} of {total} items rated</div>
@@ -1438,7 +1438,7 @@ export default function App() {
         );
       })()}
 
-      <div style={S.slabel}>Properties — tap to {prop?"start another":"start"} inspection</div>
+      <div style={S.slabel}>Properties -- tap to {prop?"start another":"start"} inspection</div>
       {properties.length===0&&(
         <div style={{textAlign:"center",padding:"32px 16px",background:"#fff",borderRadius:14,border:"0.5px solid rgba(0,0,0,0.08)",marginBottom:10}}>
           <div style={{fontSize:28,marginBottom:12}}>🏢</div>
@@ -1460,7 +1460,7 @@ export default function App() {
                 <div style={{fontSize:15,fontWeight:600,color:"#111"}}>{propName(pr)}</div>
                 <div style={{fontSize:12,color:"#888",marginTop:2}}>{propFreq(pr)}{propVac(pr)?` · ${propVac(pr)} vacant`:""}</div>
                 {isActive&&<div style={{fontSize:11,color:"#1D9E75",fontWeight:600,marginTop:3}}>● Inspection in progress</div>}
-                {isResume&&!prop&&<div style={{fontSize:11,color:"#854F0B",fontWeight:600,marginTop:3}}>● Saved draft — tap to resume</div>}
+                {isResume&&!prop&&<div style={{fontSize:11,color:"#854F0B",fontWeight:600,marginTop:3}}>● Saved draft -- tap to resume</div>}
               </div>
               {!isActive&&pending>0&&<Bdg bg="#FAECE7" tx="#993C1D">{pending} pending</Bdg>}
               {isActive&&<Bdg bg="#E1F5EE" tx="#1D9E75">Active</Bdg>}
@@ -1490,17 +1490,17 @@ export default function App() {
       {/* ── Rotating funny business quote ── */}
       {(()=>{
         const QUOTES=[
-          {q:""A property inspection is just a polite way of saying 'I've noticed things.'"",a:"— Anonymous PM"},
-          {q:""The parking lot doesn't stripe itself."",a:"— Vestar wisdom"},
-          {q:""Behind every great property is someone who actually walked it."",a:"— Field notes"},
-          {q:""Details are not the details. They make the design."",a:"— Charles Eames"},
-          {q:""Cleanliness is not next to godliness. It's next to 'lease renewed.'"",a:"— Property Management proverb"},
-          {q:""If it's worth owning, it's worth inspecting."",a:"— Common sense"},
-          {q:""A work order ignored is a lawsuit invited."",a:"— Every PM ever"},
-          {q:""The best time to fix a pothole was last quarter. The second best time is today."",a:"— Field operations"},
-          {q:""You can't manage what you don't walk."",a:"— Management 101"},
-          {q:""Tenants notice everything. So should you."",a:"— Site management"},
-        ];
+          {q:"A property inspection is just a polite way of saying: I have noticed things.",a:"-- Anonymous PM"},
+          {q:"The parking lot does not stripe itself.",a:"-- Vestar wisdom"},
+          {q:"Behind every great property is someone who actually walked it.",a:"-- Field notes"},
+          {q:"Details are not the details. They make the design.",a:"-- Charles Eames"},
+          {q:"Cleanliness is not next to godliness. It is next to lease renewed.",a:"-- Property Management proverb"},
+          {q:"If it is worth owning, it is worth inspecting.",a:"-- Common sense"},
+          {q:"A work order ignored is a lawsuit invited.",a:"-- Every PM ever"},
+          {q:"The best time to fix a pothole was last quarter. The second best time is today.",a:"-- Field operations"},
+          {q:"You cannot manage what you do not walk.",a:"-- Management 101"},
+          {q:"Tenants notice everything. So should you.",a:"-- Site management"},
+        ]
         const q=QUOTES[new Date().getDay()%QUOTES.length];
         return(
           <div style={{margin:"20px 0 8px",padding:"14px 16px",background:"#fff",borderRadius:14,border:"0.5px solid rgba(0,0,0,0.07)"}}>
@@ -1634,7 +1634,7 @@ export default function App() {
           {["Low","Medium","High","Urgent"].map(p=>{const pc=PRI[p];const sel=issPri===p;return <button key={p} style={{padding:"6px 14px",borderRadius:20,border:sel?`1.5px solid ${pc.bg}`:"0.5px solid rgba(0,0,0,0.12)",background:sel?pc.bg:"#fff",color:sel?pc.tx:"#666",fontWeight:sel?700:400,cursor:"pointer",fontSize:13,fontFamily:"inherit"}} onClick={()=>setIssPri(p)}>{p}</button>;})}
         </div>
         <label style={S.lbl}>Assign contractor</label>
-        {contractors.length===0&&<div style={{fontSize:13,color:"#888",marginBottom:14}}>No contractors yet — add them in Contacts.</div>}
+        {contractors.length===0&&<div style={{fontSize:13,color:"#888",marginBottom:14}}>No contractors yet -- add them in Contacts.</div>}
         {contractors.map((c,i)=>{const av=ava(c.name,i);const sel=issCont?.id===c.id;return(
           <div key={c.id} style={S.copt(sel)} onClick={()=>setIssCont(c)}>
             <div style={S.av(av.bg,av.tx)}>{av.initials}</div>
@@ -1657,7 +1657,7 @@ export default function App() {
             <div style={{fontSize:12,color:"#888",marginBottom:8}}>
               <div><strong>To:</strong> {issCont?.email||"(no email set)"}</div>
               <div><strong>CC:</strong> {mgrEmail}</div>
-              <div><strong>Subject:</strong> Work Order #{nextWONum} — {prop?.name}</div>
+              <div><strong>Subject:</strong> Work Order #{nextWONum} -- {prop?.name}</div>
             </div>
             <div style={S.div}/>
             <div style={{fontSize:14,color:"#111",lineHeight:1.8}}>
@@ -1696,8 +1696,8 @@ export default function App() {
         <div style={{fontSize:20,fontWeight:700,color:"#111",marginBottom:8}}>Work order dispatched</div>
         <div style={{fontSize:14,color:"#666",lineHeight:1.6}}>{newWO?.wo.number} sent. Contractor can accept, mark complete, or decline from email.</div>
         <div style={S.ncard}>
-          <div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",fontSize:13}}><div style={{width:8,height:8,borderRadius:"50%",background:"#1D9E75",flexShrink:0}}/><span style={{color:"#111"}}>{newWO?.contractor?.name||"Contractor"} — email sent</span></div>
-          <div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",fontSize:13}}><div style={{width:8,height:8,borderRadius:"50%",background:"#378ADD",flexShrink:0}}/><span style={{color:"#111"}}>{mgrEmail} — copy sent</span></div>
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",fontSize:13}}><div style={{width:8,height:8,borderRadius:"50%",background:"#1D9E75",flexShrink:0}}/><span style={{color:"#111"}}>{newWO?.contractor?.name||"Contractor"} -- email sent</span></div>
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 0",fontSize:13}}><div style={{width:8,height:8,borderRadius:"50%",background:"#378ADD",flexShrink:0}}/><span style={{color:"#111"}}>{mgrEmail} -- copy sent</span></div>
         </div>
         <div style={{marginTop:16,fontSize:13,color:"#888"}}>{newWO?.wo.number} · {issItem?.item} · {issPri}<br/>{prop?.name}</div>
       </div>
@@ -1818,7 +1818,7 @@ export default function App() {
                   <Bdg bg="#E1F5EE" tx="#0F6E56">{wos} WOs</Bdg>
                 </div>
                 <div style={{borderTop:"0.5px solid rgba(0,0,0,0.06)",padding:"8px 16px 12px"}}>
-                  {[["Vacant Units/Suites",p.vacant_units||"—"],["Type",p.type||"—"],["Inspection freq.",p.inspection_freq]].map(([k,v])=>(
+                  {[["Vacant Units/Suites",p.vacant_units||"--"],["Type",p.type||"--"],["Inspection freq.",p.inspection_freq]].map(([k,v])=>(
                     <div key={k} style={S.irow}><span style={{color:"#888",fontSize:13}}>{k}</span><span style={{color:"#111",fontWeight:500,fontSize:13}}>{v}</span></div>
                   ))}
                   <div style={{display:"flex",gap:8,marginTop:10}}>
@@ -1875,7 +1875,7 @@ export default function App() {
                   <Bdg bg="#E1F5EE" tx="#0F6E56">{cnt} WOs</Bdg>
                 </div>
                 <div style={{borderTop:"0.5px solid rgba(0,0,0,0.06)",padding:"8px 16px 12px"}}>
-                  {[["Phone",c.phone||"—"],["Response",c.avg_response||"—"],["License",c.license||"N/A"]].map(([k,v])=>(
+                  {[["Phone",c.phone||"--"],["Response",c.avg_response||"--"],["License",c.license||"N/A"]].map(([k,v])=>(
                     <div key={k} style={S.irow}><span style={{color:"#888",fontSize:13}}>{k}</span><span style={{color:"#111",fontWeight:500,fontSize:13}}>{v}</span></div>
                   ))}
                   <div style={{display:"flex",gap:8,marginTop:10}}>
@@ -2011,7 +2011,7 @@ export default function App() {
         </div>}
       </div>
       <div style={{...S.body,paddingBottom:80}}>
-        {/* Inspection / Combined — selective inspection picker */}
+        {/* Inspection / Combined -- selective inspection picker */}
         {(rptMode==="inspection"||rptMode==="combined")&&(()=>{
           const filtInsps=inspections.filter(i=>i.status==="complete"&&(rptProp==="all"||i.property_id===rptProp));
           if(!filtInsps.length) return <div style={{textAlign:"center",color:"#aaa",marginTop:40,fontSize:14}}>No completed inspections yet.</div>;
@@ -2187,7 +2187,7 @@ export default function App() {
   );
   // ── Layout ────────────────────────────────────────────────────────────────
   const inFlow=tab==="inspect"&&scr!=="home";
-  // Step 1 — waiting for Supabase to confirm auth state (usually <1 sec)
+  // Step 1 -- waiting for Supabase to confirm auth state (usually <1 sec)
   if (!authReady) return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0F1F38",fontFamily:"'DM Sans',system-ui",padding:32}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
@@ -2205,10 +2205,10 @@ export default function App() {
     </div>
   );
 
-  // Step 2 — auth confirmed, no session → show login
+  // Step 2 -- auth confirmed, no session → show login
   if (!session) return <LoginScreen />;
 
-  // Step 3 — logged in but data not yet loaded → show loading with user context
+  // Step 3 -- logged in but data not yet loaded → show loading with user context
   if (!dataLoaded) return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0F1F38",fontFamily:"'DM Sans',system-ui",padding:32}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
