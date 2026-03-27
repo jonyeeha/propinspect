@@ -281,12 +281,11 @@ export default function App() {
   const [session,    setSession]    = useState(null);
   const [profile,    setProfile]    = useState(null);
   const [authReady,  setAuthReady]  = useState(false);
-  const [dataLoaded, setDataLoaded] = useState(!!_preload); // true immediately if cache exists
   const [saving,     setSaving]     = useState(false);
 
-  // ── Cloud data ─────────────────────────────────────────────────────────────
-  // Pre-load from cache immediately — before auth even resolves
+  // ── Cloud data — pre-load from cache before auth resolves ─────────────────
   const _preload = (() => { try { const uid=getLastUid(); return uid?loadCache(uid):null; } catch(_){ return null; } })();
+  const [dataLoaded, setDataLoaded] = useState(!!_preload); // true immediately if cache exists
   const [properties,  setProperties]  = useState(_preload?.properties  || []);
   const [contractors, setContractors] = useState(_preload?.contractors || []);
   const [clTemplate,  setClTemplate]  = useState(_preload?.clTemplate  || []);
