@@ -1969,17 +1969,35 @@ export default function App() {
   );
   // ── Layout ────────────────────────────────────────────────────────────────
   const inFlow=tab==="inspect"&&scr!=="home";
-  if (!authReady) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"system-ui",color:"#888"}}>Loading...</div>;
-  if (!session)   return <LoginScreen />;
-  if (!dataLoaded) return (
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontFamily:"'DM Sans',system-ui",color:"#888",gap:16,padding:24}}>
-      <div style={{fontSize:32}}>🏢</div>
-      <div style={{fontSize:16,fontWeight:600,color:"#0F1F38"}}>Loading your data...</div>
-      <div style={{fontSize:13,color:"#aaa",textAlign:"center",maxWidth:280,lineHeight:1.6}}>Connecting to Supabase. If this takes more than 10 seconds, check your browser console (F12) for errors.</div>
-      <button onClick={()=>window.location.reload()} style={{marginTop:8,padding:"10px 24px",background:"#0F1F38",color:"#fff",border:"none",borderRadius:10,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Retry</button>
-      <button onClick={signOut} style={{padding:"8px 20px",background:"transparent",color:"#aaa",border:"0.5px solid #ddd",borderRadius:10,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Sign out and try again</button>
+  if (!authReady || !dataLoaded) return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0F1F38",fontFamily:"'DM Sans',system-ui",padding:32}}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+      {/* Vestar logo */}
+      <img src={VESTAR_LOGO} alt="Vestar" style={{width:90,height:90,objectFit:"contain",marginBottom:28,borderRadius:12,background:"#fff",padding:8}}/>
+      <div style={{fontSize:22,fontWeight:700,color:"#fff",marginBottom:6,letterSpacing:-0.3}}>PropInspect</div>
+      <div style={{fontSize:14,color:"rgba(180,200,230,0.8)",marginBottom:36}}>Vestar Property Management</div>
+      {/* Animated loading dots */}
+      <div style={{display:"flex",gap:8,marginBottom:32}}>
+        {[0,1,2].map(i=>(
+          <div key={i} style={{width:10,height:10,borderRadius:"50%",background:"#1D9E75",
+            animation:`bounce 1.2s ease-in-out ${i*0.2}s infinite`,
+            animationFillMode:"both"}}/>
+        ))}
+      </div>
+      <div style={{fontSize:13,color:"rgba(180,200,230,0.5)"}}>Getting your properties ready...</div>
+      {/* Bounce animation */}
+      <style>{`
+        @keyframes bounce {
+          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+          40% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
+      {authReady&&!dataLoaded&&(
+        <button onClick={signOut} style={{marginTop:40,padding:"8px 20px",background:"transparent",color:"rgba(180,200,230,0.5)",border:"0.5px solid rgba(180,200,230,0.2)",borderRadius:10,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Sign out</button>
+      )}
     </div>
   );
+  if (!session) return <LoginScreen />;
 
   return(
     <ErrorBoundary>
