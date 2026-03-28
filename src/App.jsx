@@ -1,10 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "./supabaseClient.js";
 
-const SUPA_URL = "https://efhbnddgcazzkbppzdqw.supabase.co";
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVmaGJuZGRnY2F6emticHB6ZHF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1NTAzMjYsImV4cCI6MjA5MDEyNjMyNn0.BmEoq6jAq_2U0fK13YnCB9rtmblI5Cse3P-9-qtOkfA";
-const APP_URL  = "https://propinspect.vercel.app";
-const supabase = createClient(SUPA_URL, SUPA_KEY);
+const APP_URL = "https://propinspect.vercel.app";
 const CACHE_KEY = "propinspect_cache_v1";
 const saveCache = (uid, data) => { try { localStorage.setItem(CACHE_KEY+"_"+uid, JSON.stringify(data)); } catch(_){} };
 const loadCache = (uid) => { try { const r=localStorage.getItem(CACHE_KEY+"_"+uid); return r?JSON.parse(r):null; } catch(_){ return null; } };
