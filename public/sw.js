@@ -1,37 +1,57 @@
 // PropInspect Service Worker
-// Caches the app shell so it loads instantly and works offline
-
-const CACHE = "propinspect-v1";
-const PRECACHE = ["/", "/index.html"];
+// Cache version — increment this with every deployment to force update
+const CACHE = "propinspect-v2";
 
 self.addEventListener("install", e => {
+  // Skip waiting so new SW activates immediately
+  self.skipWaiting();
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting())
+    caches.open(CACHE).then(c => c.addAll(["/", "/index.html"]))
   );
 });
 
 self.addEventListener("activate", e => {
+  // Delete all old caches immediately
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
 self.addEventListener("fetch", e => {
-  // Network first for API calls, cache first for assets
-  if (e.request.url.includes("supabase") || e.request.url.includes("resend")) {
-    return; // always go to network for Supabase and email
+  const url = e.request.url;
+
+  // Never cache Supabase, Resend, or API calls -- always go to network
+  if (url.includes("supabase") || url.includes("resend") || url.includes("/api/")) {
+    return;
   }
+
+  // For HTML navigation requests -- network first, fall back to cache
+  // This ensures users always get the latest app version
+  if (e.request.mode === "navigate") {
+    e.respondWith(
+      fetch(e.request)
+        .then(res => {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+          return res;
+        })
+        .catch(() => caches.match("/index.html"))
+    );
+    return;
+  }
+
+  // For all other assets -- network first with cache fallback
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      return cached || fetch(e.request).then(res => {
+    fetch(e.request)
+      .then(res => {
         if (res && res.status === 200 && e.request.method === "GET") {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return res;
-      });
-    }).catch(() => caches.match("/index.html"))
+      })
+      .catch(() => caches.match(e.request))
   );
 });
