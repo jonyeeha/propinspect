@@ -1493,16 +1493,12 @@ export default function App() {
         const QUOTES=[
           {q:"The parking lot does not stripe itself. We checked.",a:"-- Vestar Field Operations"},
           {q:"If you can read this, you probably saw a curb that needs to be painted.",a:"-- Eyes on the property"},
-          {q:"Every great property has someone who actually put on shoes and walked it.",a:"-- Boots on the Ground"},
           {q:"You cannot manage what you do not walk. Unless you have really good Wi-Fi.",a:"-- Management 101"},
-          {q:"Tell that Tenant to fix their signage. You won't hurt their feelings.",a:"-- Tenant relations"},
-          {q:"A work order ignored today is a very awkward phone call tomorrow.",a:"-- Every PM ever"},
-          {q:"The best time to fix a pothole was last quarter. The second best time is right now.",a:"-- Field wisdom"},
           {q:"Behind every five-star review is someone who fixed the light in the parking lot.",a:"-- Yelp, probably"},
-          {q:"Tenants notice everything. Inspectors notice everything else.",a:"-- Site management"},
-          {q:"If you can read this, you are probably supposed to be on a property right now.",a:"-- Your conscience"},
+          {q:"Tell that Tenant to fix their signage. You won't hurt their feelings.",a:"-- Tenant relations"},
         ];
-        const q=QUOTES[new Date().getDay()%QUOTES.length];
+        // Rotate every 2 hours
+        const q=QUOTES[Math.floor(Date.now()/1000/60/120)%QUOTES.length];
         return(
           <div style={{textAlign:"center",padding:"24px 20px 8px"}}>
             <div style={{fontSize:12,color:"#aaa",lineHeight:1.7,fontStyle:"italic",marginBottom:4}}>{q.q}</div>
