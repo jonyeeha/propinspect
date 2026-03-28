@@ -358,10 +358,12 @@ export default function App() {
 
   // ── Keepalive ping -- prevents Supabase free tier cold starts ──────────────
   useEffect(() => {
-    // Ping immediately on mount to wake up Supabase, then every 4 minutes
-    const ping = () => supabase.from("profiles").select("id").limit(1).then(()=>{}).catch(()=>{});
-    ping();
-    const interval = setInterval(ping, 4 * 60 * 1000);
+    // Ping DB and Edge Function immediately, then every 4 minutes
+    const pingDB  = () => supabase.from("profiles").select("id").limit(1).then(()=>{}).catch(()=>{});
+    const pingFn  = () => supabase.functions.invoke("send-work-order", { body: { ping: true } }).catch(()=>{});
+    pingDB();
+    pingFn(); // warm up edge function on load so first WO sends instantly
+    const interval = setInterval(() => { pingDB(); pingFn(); }, 4 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -724,32 +726,30 @@ export default function App() {
       const k=`${issItem.area}::${issItem.item}`;
       setClState(prev=>({...prev,[k]:{...prev[k],status:"flagged"}}));
 
-      // ── Send email via Supabase Edge Function ──────────────────────────
+      // ── Send email in background -- do NOT await, navigate immediately ──
+      // This prevents the 30-60s cold-start delay from blocking the UI
       if (issCont?.email) {
-        try {
-          await supabase.functions.invoke("send-work-order", {
-            body: {
-              woNumber:       number,
-              woId:           data.id,
-              token:          data.token,
-              propertyName:   prop.name || propName(prop),
-              area:           issItem.area,
-              item:           issItem.item,
-              description:    issDesc || "(No description)",
-              priority:       issPri,
-              contractorName: issCont.name,
-              contractorEmail:issCont.email,
-              managerEmail:   mgrEmail,
-              photos:         photoUrls,
-              createdAt:      today(),
-            },
-          });
-        } catch(emailErr) {
-          console.error("Email send error:", emailErr);
-          // Don't block the flow -- WO is saved even if email fails
-        }
+        const emailPayload = {
+          woNumber:       number,
+          woId:           data.id,
+          token:          data.token,
+          propertyName:   prop.name || propName(prop),
+          area:           issItem.area,
+          item:           issItem.item,
+          description:    issDesc || "(No description)",
+          priority:       issPri,
+          contractorName: issCont.name,
+          contractorEmail:issCont.email,
+          managerEmail:   mgrEmail,
+          photos:         photoUrls,
+          createdAt:      today(),
+        };
+        // Fire and forget -- email sends in background while user sees confirmation
+        supabase.functions.invoke("send-work-order", { body: emailPayload })
+          .catch(err => console.error("Email send error:", err));
       }
     }
+    // Navigate immediately -- don't wait for email
     setScr("sent"); setSaving(false);
   };
 
@@ -1488,47 +1488,29 @@ export default function App() {
           </div>
         );
       })}
-      {workOrders.length>0&&<>
-        <div style={{...S.slabel,marginTop:20}}>Recent Work Orders</div>
-        {workOrders.slice(0,3).map(wo=>{
-          const sc=STA[wo.status]||STA.pending;
-          return(
-            <div key={wo.id} style={{...S.card,marginBottom:8}}>
-              <div style={{padding:"12px 16px"}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                  <span style={{fontSize:13,fontWeight:700,color:"#111"}}>{wo.number}</span>
-                  <Bdg bg={sc.bg} tx={sc.tx}>{wo.status}</Bdg>
-                </div>
-                <div style={{fontSize:14,color:"#333",marginBottom:3}}>{wo.item}</div>
-                <div style={{fontSize:12,color:"#888"}}>{getPropName(wo.property_id)} · {wo.priority}</div>
-              </div>
-            </div>
-          );
-        })}
-      </>}
-      {/* ── Rotating funny business quote ── */}
+      {/* ── Rotating quote -- floating, centered, no card ── */}
       {(()=>{
         const QUOTES=[
-          {q:"A property inspection is just a polite way of saying: I have noticed things.",a:"-- Anonymous PM"},
-          {q:"The parking lot does not stripe itself.",a:"-- Vestar wisdom"},
-          {q:"Behind every great property is someone who actually walked it.",a:"-- Field notes"},
-          {q:"Details are not the details. They make the design.",a:"-- Charles Eames"},
-          {q:"Cleanliness is not next to godliness. It is next to lease renewed.",a:"-- Property Management proverb"},
-          {q:"If it is worth owning, it is worth inspecting.",a:"-- Common sense"},
-          {q:"A work order ignored is a lawsuit invited.",a:"-- Every PM ever"},
-          {q:"The best time to fix a pothole was last quarter. The second best time is today.",a:"-- Field operations"},
-          {q:"You cannot manage what you do not walk.",a:"-- Management 101"},
-          {q:"Tenants notice everything. So should you.",a:"-- Site management"},
-        ]
+          {q:"The parking lot does not stripe itself. We checked.",a:"-- Vestar Field Operations"},
+          {q:"If you can read this, you probably saw a curb that needs to be painted.",a:"-- Eyes on the property"},
+          {q:"Every great property has someone who actually put on shoes and walked it.",a:"-- Boots on the Ground"},
+          {q:"You cannot manage what you do not walk. Unless you have really good Wi-Fi.",a:"-- Management 101"},
+          {q:"Tell that Tenant to fix their signage. You won't hurt their feelings.",a:"-- Tenant relations"},
+          {q:"A work order ignored today is a very awkward phone call tomorrow.",a:"-- Every PM ever"},
+          {q:"The best time to fix a pothole was last quarter. The second best time is right now.",a:"-- Field wisdom"},
+          {q:"Behind every five-star review is someone who fixed the light in the parking lot.",a:"-- Yelp, probably"},
+          {q:"Tenants notice everything. Inspectors notice everything else.",a:"-- Site management"},
+          {q:"If you can read this, you are probably supposed to be on a property right now.",a:"-- Your conscience"},
+        ];
         const q=QUOTES[new Date().getDay()%QUOTES.length];
         return(
-          <div style={{margin:"20px 0 8px",padding:"14px 16px",background:"#fff",borderRadius:14,border:"0.5px solid rgba(0,0,0,0.07)"}}>
-            <div style={{fontSize:13,color:"#444",lineHeight:1.6,fontStyle:"italic",marginBottom:4}}>{q.q}</div>
-            <div style={{fontSize:11,color:"#aaa",fontWeight:600}}>{q.a}</div>
+          <div style={{textAlign:"center",padding:"24px 20px 8px"}}>
+            <div style={{fontSize:12,color:"#aaa",lineHeight:1.7,fontStyle:"italic",marginBottom:4}}>{q.q}</div>
+            <div style={{fontSize:11,color:"#ccc",fontWeight:500,letterSpacing:"0.03em"}}>{q.a}</div>
           </div>
         );
       })()}
-      <div style={{padding:"12px 0 4px",textAlign:"right"}}>
+      <div style={{padding:"8px 0 4px",textAlign:"right"}}>
         <button onClick={signOut} style={{fontSize:12,padding:"5px 12px",borderRadius:20,border:"0.5px solid rgba(0,0,0,0.15)",background:"#fff",color:"#888",cursor:"pointer",fontFamily:"inherit"}}>Sign out</button>
       </div>
     </div>
