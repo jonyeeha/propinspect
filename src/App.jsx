@@ -279,6 +279,7 @@ export default function App() {
   const [profile,    setProfile]    = useState(null);
   const [authReady,  setAuthReady]  = useState(false);
   const [saving,     setSaving]     = useState(false);
+  const [savingMsg,  setSavingMsg]  = useState("Saving...");
 
   // ── Cloud data -- pre-load from cache before auth resolves ─────────────────
   const _preload = (() => { try { const uid=getLastUid(); return uid?loadCache(uid):null; } catch(_){ return null; } })();
@@ -548,26 +549,44 @@ export default function App() {
   }, [dataLoaded]);
 
   // autoSaveDraft uses ref so it always has the latest draftKey
+  // Retry helper -- attempts a Supabase operation up to maxTries times
+  const withRetry = async (fn, maxTries=3, delayMs=2000) => {
+    for (let attempt=1; attempt<=maxTries; attempt++) {
+      try {
+        const result = await fn();
+        return result;
+      } catch(e) {
+        console.warn(`Attempt ${attempt}/${maxTries} failed:`, e.message);
+        if (attempt === maxTries) throw e;
+        await new Promise(r => setTimeout(r, delayMs * attempt));
+      }
+    }
+  };
+
   const autoSaveDraft = async (propId, items) => {
     if (!session || !propId) return;
     try {
       const currentDraftKey = draftKeyRef.current;
       if (currentDraftKey) {
-        const { error } = await supabase.from("inspections")
-          .update({items, date:today()}).eq("id", currentDraftKey);
-        if (error) console.error("Draft update error:", error);
+        await withRetry(async () => {
+          const { error } = await supabase.from("inspections")
+            .update({items, date:today()}).eq("id", currentDraftKey);
+          if (error) throw error;
+        });
       } else {
-        const { data, error } = await supabase.from("inspections")
-          .insert({user_id:session.user.id, property_id:propId, date:today(), items, status:"draft"})
-          .select().single();
-        if (error) { console.error("Draft insert error:", error); return; }
-        if (data) {
-          draftKeyRef.current = data.id;
-          setDraftKey(data.id);
-          setInspections(prev=>[data,...prev.filter(i=>i.id!==data.id&&i.status!=="draft")]);
-        }
+        await withRetry(async () => {
+          const { data, error } = await supabase.from("inspections")
+            .insert({user_id:session.user.id, property_id:propId, date:today(), items, status:"draft"})
+            .select().single();
+          if (error) throw error;
+          if (data) {
+            draftKeyRef.current = data.id;
+            setDraftKey(data.id);
+            setInspections(prev=>[data,...prev.filter(i=>i.id!==data.id&&i.status!=="draft")]);
+          }
+        });
       }
-    } catch(e) { console.error("autoSaveDraft error:", e); }
+    } catch(e) { console.error("autoSaveDraft failed after retries:", e); }
   };
 
   // Debounced save -- waits 1.5s after last change before saving
@@ -612,35 +631,41 @@ export default function App() {
     setScr("checklist");
   };
 
-  // Shared save helper -- returns saved inspection data or null
+  // Shared save helper -- retries up to 3 times on timeout/error
   const _saveInspectionNow = async (status) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     const currentDraftKey = draftKeyRef.current;
+    const itemsSnapshot = {...clState}; // snapshot in case state changes during retry
     try {
-      if (currentDraftKey) {
-        const { data, error } = await supabase.from("inspections")
-          .update({items:clState, status, date:today()}).eq("id",currentDraftKey).select().single();
-        if (error) throw error;
-        if (data) setInspections(prev=>prev.map(i=>i.id===currentDraftKey?data:i));
-        return data;
-      } else {
-        const { data, error } = await supabase.from("inspections")
-          .insert({user_id:session.user.id, property_id:prop.id, date:today(), items:clState, status}).select().single();
-        if (error) throw error;
-        if (data) setInspections(prev=>[data,...prev.filter(i=>i.id!==data.id)]);
-        return data;
-      }
+      return await withRetry(async () => {
+        if (currentDraftKey) {
+          const { data, error } = await supabase.from("inspections")
+            .update({items:itemsSnapshot, status, date:today()}).eq("id",currentDraftKey).select().single();
+          if (error) throw error;
+          if (data) setInspections(prev=>prev.map(i=>i.id===currentDraftKey?data:i));
+          return data;
+        } else {
+          const { data, error } = await supabase.from("inspections")
+            .insert({user_id:session.user.id, property_id:prop.id, date:today(), items:itemsSnapshot, status}).select().single();
+          if (error) throw error;
+          if (data) setInspections(prev=>[data,...prev.filter(i=>i.id!==data.id)]);
+          return data;
+        }
+      }, 3, 3000);
     } catch(e) {
-      console.error("_saveInspectionNow error:", e);
-      alert("Error saving inspection: "+e.message);
+      console.error("_saveInspectionNow failed after retries:", e);
+      alert("Error saving inspection. Please check your connection and try again.");
       return null;
     }
   };
 
   // "Complete" -- marks inspection complete, navigates to Report tab
   const completeInspection = async () => {
-    setSaving(true);
+    setSaving(true); setSavingMsg("Saving...");
+    // If it takes more than 4s, show a reassuring message
+    const slowTimer = setTimeout(() => setSavingMsg("Still saving -- please wait..."), 4000);
     const saved = await _saveInspectionNow("complete");
+    clearTimeout(slowTimer);
     if (!saved) { setSaving(false); return; }
     draftKeyRef.current = null;
     setDraftKey(null); setDraftPropId(null);
@@ -655,8 +680,10 @@ export default function App() {
 
   // "Save" -- saves as draft, returns to home
   const saveInspection = async () => {
-    setSaving(true);
+    setSaving(true); setSavingMsg("Saving...");
+    const slowTimer = setTimeout(() => setSavingMsg("Still saving -- please wait..."), 4000);
     await _saveInspectionNow("draft");
+    clearTimeout(slowTimer);
     setSaving(false);
     setScr("home");
   };
@@ -1607,7 +1634,7 @@ export default function App() {
           </div>
           <div style={{display:"flex",gap:8}}>
             <button style={{...S.pbtn("gh"), flex:1, fontSize:14}} onClick={saveInspection} disabled={saving}>
-              {saving ? "Saving..." : "Save"}
+              {saving ? savingMsg : "Save"}
             </button>
             <button style={{...S.pbtn("gn"), flex:2, fontSize:14, fontWeight:700}} onClick={completeInspection} disabled={saving}>
               {saving ? "Saving..." : "Complete →"}
