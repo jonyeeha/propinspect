@@ -378,7 +378,8 @@ export default function App() {
         if (payload.eventType === "UPDATE")
           setWorkOrders(prev => prev.map(w => w.id===payload.new.id ? payload.new : w));
         else if (payload.eventType === "INSERT")
-          setWorkOrders(prev => [payload.new, ...prev]);
+          // Deduplicate: only add if not already in state (createWO adds it locally first)
+          setWorkOrders(prev => prev.some(w => w.id===payload.new.id) ? prev : [payload.new, ...prev]);
         else if (payload.eventType === "DELETE")
           setWorkOrders(prev => prev.filter(w => w.id!==payload.old.id));
       })
@@ -451,7 +452,13 @@ export default function App() {
       setClTemplate(tplData);
 
       // Work orders
-      setWorkOrders(wos.data||[]);
+      // Deduplicate by id in case realtime already added some
+      setWorkOrders(prev => {
+        const fresh = wos.data||[];
+        // Merge: fresh data wins, keep any that aren't in fresh yet
+        const ids = new Set(fresh.map(w=>w.id));
+        return [...fresh, ...prev.filter(w=>!ids.has(w.id))];
+      });
       let nextNum = 1001;
       if (wos.data?.length) {
         const nums = wos.data.map(w=>parseInt((w.number||"").replace("WO-",""))).filter(n=>!isNaN(n));
@@ -460,7 +467,7 @@ export default function App() {
       }
 
       // Inspections
-      setInspections(insps.data||[]);
+      setInspections(insps.data||[]);  // fresh from DB, authoritative
 
       // ── Save fresh data to cache for next load ─────────────────────────
       saveCache(uid, {
@@ -558,7 +565,7 @@ export default function App() {
         if (data) {
           draftKeyRef.current = data.id;
           setDraftKey(data.id);
-          setInspections(prev=>[data,...prev.filter(i=>i.status!=="draft")]);
+          setInspections(prev=>[data,...prev.filter(i=>i.id!==data.id&&i.status!=="draft")]);
         }
       }
     } catch(e) { console.error("autoSaveDraft error:", e); }
@@ -621,7 +628,7 @@ export default function App() {
         const { data, error } = await supabase.from("inspections")
           .insert({user_id:session.user.id, property_id:prop.id, date:today(), items:clState, status}).select().single();
         if (error) throw error;
-        if (data) setInspections(prev=>[data,...prev]);
+        if (data) setInspections(prev=>[data,...prev.filter(i=>i.id!==data.id)]);
         return data;
       }
     } catch(e) {
@@ -1260,14 +1267,23 @@ export default function App() {
             });
             if(!si.length)return;
 
-            // Each section always starts on a fresh page with a header
+            // Each section starts on a fresh page
             newPage();
+            // Navy nav bar
             doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
             doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
             doc.text(`PROPERTY INSPECTION  ·  ${prName}`,ML,9);
             doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(180,200,230);
             doc.text(insp.date,PW-MR,9,{align:"right"});
             y=22;
+            // Category name as page heading
+            doc.setFont("helvetica","bold");doc.setFontSize(16);doc.setTextColor(15,31,56);
+            const catLines=doc.splitTextToSize(sec.area.toUpperCase(),CW);
+            doc.text(catLines,ML,y);
+            y+=catLines.length*8+2;
+            // Red rule under category name
+            doc.setDrawColor(160,0,0);doc.setLineWidth(0.6);doc.line(ML,y,PW-MR,y);
+            y+=8;
 
             si.forEach(({item,state})=>{
               const isSat=state.status==="sat";
@@ -1279,7 +1295,7 @@ export default function App() {
               const neededH=28+commentLines.length*5+(photoRows>0?photoRows*(gridPH+8):0)+10;
               chkY(neededH);
 
-              // Re-draw page header if chkY triggered a new page
+              // Re-draw page header + category if chkY triggered a new page
               if(y<=2){
                 doc.setFillColor(15,31,56);doc.rect(0,0,PW,14,"F");
                 doc.setFont("helvetica","bold");doc.setFontSize(9);doc.setTextColor(255,255,255);
@@ -1287,6 +1303,12 @@ export default function App() {
                 doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(180,200,230);
                 doc.text(insp.date,PW-MR,9,{align:"right"});
                 y=22;
+                doc.setFont("helvetica","bold");doc.setFontSize(16);doc.setTextColor(15,31,56);
+                const catLines2=doc.splitTextToSize(sec.area.toUpperCase(),CW);
+                doc.text(catLines2,ML,y);
+                y+=catLines2.length*8+2;
+                doc.setDrawColor(160,0,0);doc.setLineWidth(0.6);doc.line(ML,y,PW-MR,y);
+                y+=8;
               }
 
               // Bold ALL-CAPS issue title
