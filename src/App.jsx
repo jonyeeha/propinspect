@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import { supabase } from "./supabaseClient.js";
 
-const APP_URL = "https://propinspect-w7y9.vercel.app";
+const APP_URL = "https://propinspect-test.vercel.app";
 const CACHE_KEY = "propinspect_cache_v1";
 const saveCache = (uid, data) => { try { localStorage.setItem(CACHE_KEY+"_"+uid, JSON.stringify(data)); } catch(_){} };
 const loadCache = (uid) => { try { const r=localStorage.getItem(CACHE_KEY+"_"+uid); return r?JSON.parse(r):null; } catch(_){ return null; } };
